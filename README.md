@@ -18,11 +18,10 @@ The tool allows users to:
 
 ### 1️⃣ Install Maude
 DM-Check requires **The Maude System** (version 3.5.1 or later).  
-Download and install Maude from the [official Maude GitHub](https://github.com/maude-lang/Maude/releases/tag/Maude3.5.1).
+Download and install Maude from the [official Maude GitHub](https://github.com/maude-lang/Maude).
 
 ### 2️⃣ Download DM-Check
-Visit the DM-Check official page:  
-🔗 [https://safe-tools.dsic.upv.es/dmc/](https://safe-tools.dsic.upv.es/dmc/)
+Visit the [DM-Check installation official page](https://safe-tools.dsic.upv.es/dmc/install.html).
 
 Select the latest version (e.g., **v0.2.0a**) and download the compressed package.
 
@@ -35,11 +34,11 @@ This folder will contain all files needed to run DM-Check.
 2. Load your system module (the `.maude` file describing the system to verify).  
 3. Load DM-Check with the following command:
    ```maude
-   load $folder_path$/dm-check-ui
+   load $folder_path$/dm-check-ui.maude
    ```
    *(replace `$folder_path$` with the directory where DM-Check was extracted).*
 
-Once loaded, you can start using DM-Check commands to check invariants, containment, or disjointness between symbolic state sets.
+Once loaded, you can start using DM-Check commands to check invariants, containment, or disjointness between symbolic disjuntions of patterns.
 
 ---
 
@@ -57,18 +56,10 @@ DM-Check> check invariant myInvariant .
 
 ## 📚 More Information
 
-For a complete list of commands, examples, and advanced features (lemmas, subsumption checking, rechecking proofs, etc.), visit the full documentation:  
+For a complete list of commands, examples, and advanced features (lemmas, subsumption checking, rechecking proofs, etc.), visit the website:  
 🔗 [https://safe-tools.dsic.upv.es/dmc/](https://safe-tools.dsic.upv.es/dmc/)
 
 ---
 
-## 🧠 Credits
-
-**DM-Check** is developed at the *Universitat Politècnica de València (UPV)* as part of the **SAFE-Tools** framework for formal verification.
-
----
-
 ## 📜 License
-
-This project is distributed for academic and research purposes.  
-For reuse or modifications, please contact the authors or refer to the licensing information on the [official DM-Check page](https://safe-tools.dsic.upv.es/dmc/).
+DM-CHECK is free software released under the GNU General Public License for academic and research purposes.
