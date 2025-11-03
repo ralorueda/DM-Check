@@ -693,19 +693,12 @@ mod CASE is
         = outputCase( NODES ; checkSubsumption(M, NODES', NODES, VOS, LEMMAS)) .
 endm
 
-*** CASE COMMAND:
-*** - Padres para el subsumed 
-*** - Hijo usado para generar
-*** - Variable del hijo a instanciar
-*** - Generator set (T ;; T' ...)
-*** - Para cada termino del genset crear nuevo hijo, y devolver noChildren o un hijo por termino del genset 
-*** case(Module, ParentNodeList, ChildNode, Variable, TermSet) -> ChildNodeList
-
 mod DM-CHECK is
     pr CHECK-INVARIANT .
     pr CHECK-SUBSUMED .
     pr CHECK-INTERSECTION .
     pr CASE .
 endm
+
 
 eof
