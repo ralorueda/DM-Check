@@ -2,13 +2,7 @@
 
 **DM-Check** integrates **narrowing-based symbolic model checking** with **inductive theorem proving** to establish inductive invariants (transition-closed invariants) in a symbolic manner for a given topmost Maude system module — that is, for a topmost rewrite theory specifying a concurrent system.
 
-The candidate inductive invariant is given as a disjunction of constrained patterns:
-
-\[
-\bigvee_{i \in I} u_i \mid \varphi_i
-\]
-
-where `u_i` are patterns (constructor terms with variables describing sets of states) and `φ_i` are constraints (conjunctions of equalities).
+The candidate inductive invariant is given as a disjunction of constrained patterns.
 
 ---
 
