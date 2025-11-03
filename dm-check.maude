@@ -1,0 +1,711 @@
+***(
+Copyright 2021-2025 Universitat Politècnica de València, Spain
+
+This program is free software: you can redistribute it and/or modify it under the terms 
+of the GNU General Public License as published by the Free Software Foundation, either 
+version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+)***
+
+load NuITP.maude
+
+mod CONVERT-VARIABLES is
+    pr META-LEVEL .
+    pr CONVERSION .
+    pr NuITP-UTILS .
+
+    var F : Qid .   
+    var V : Variable .  
+    var NTL : NeTermList .   
+    var T : Term .   
+    var N : Nat .   
+    var TL : TermList .   
+    vars SB SB' : Substitution .   
+    var VarType : Type .   
+    var CO : Context .
+    var NCTL : NeCTermList .   
+    var C : Constant .   
+    vars TS TS' : TermSet .  
+    var NTS : NeTermSet .
+    var GT : GroundTerm .
+    
+    *** Get the variables of a substitution range
+    op getRangeVars : Substitution -> TermSet .
+    eq getRangeVars((none).Substitution) = mt .
+    eq getRangeVars(V <- T ; SB) = getVars(T) ;; getRangeVars(SB) .
+
+    *** Get the variables of a substitution domain
+    op getDomainVars : Substitution -> TermSet .
+    eq getDomainVars((none).Substitution) = mt .
+    eq getDomainVars(V <- T ; SB) = V ;; getDomainVars(SB) .
+    
+    *** Get all the variables of a substitution 
+    op getAllVars : Substitution -> TermSet .
+    eq getAllVars((none).Substitution) = mt .
+    eq getAllVars(V <- T ; SB) = V ;; getVars(T) ;; getAllVars(SB) .
+
+    *** Remove repetitions from a variable set
+    op disjunctVars : TermSet -> TermSet .
+    eq disjunctVars(mt) = mt .
+    eq disjunctVars(T) = T .
+    eq disjunctVars(NTS ;; NTS ;; TS) = disjunctVars(NTS ;; TS) .
+    eq disjunctVars(NTS) = NTS [owise] .
+
+    *** Count the variables in a list or set
+    op countVars : TermList -> Nat .
+    op countVars : TermSet -> Nat .
+    eq countVars(empty) = 0 .
+    eq countVars(mt) = 0 .
+    eq countVars(GT) = 0 .
+    eq countVars(V) = 1 .
+    eq countVars(F[NTL]) = countVars(NTL) .
+    eq countVars(T ;; NTS) = countVars(T) + countVars(NTS) .
+    eq countVars((T, NTL)) = countVars(T) + countVars(NTL) .
+
+    *** Rename a set of variables to "$" notation
+    op rename : TermSet Nat -> Substitution .
+    eq rename(mt, N) = none .
+    eq rename(V ;; TS, N) = V <- qid("$" + string(N,10) + ":" + string(getType(V))) ; rename(TS, N + 1) .
+endm
+
+mod CONVERT-MODULE is
+    pr META-MODULE .
+    pr META-LEVEL .
+    pr META-TERM .
+    
+    var MOD : Qid .   var IL : ImportList .   var SS : SortSet .   var SUBSS : SubsortDeclSet .   
+    var OPS : OpDeclSet .   var MBS : MembAxSet .   var EQS EQS1 EQS2 : EquationSet .   vars RLS RLS1 RLS2 : RuleSet .   
+    var STTS : StratDeclSet .   var STTD : StratDefSet .   vars LHS RHS : Term . 
+    vars T1 T2 T3 CTR1 CTR2 CTR3 : Term .   var ATTRS : AttrSet .
+    vars S S' : Sort .   vars TP V : Qid .   vars COND1 COND2 COND3 : Condition .
+    
+    *** Add the necessary operators and modify rules for conditional narrowing.
+    op transformMod : Module -> Module .
+    eq transformMod(mod MOD is IL sorts SS . SUBSS OPS MBS EQS RLS endm)
+                = mod MOD is IL sorts SS ; 'DMBool . SUBSS (OPS addOpDecls(SS)) MBS EQS transformRules(RLS) endm .
+    eq transformMod(th MOD is IL sorts SS . SUBSS OPS MBS EQS RLS endth)
+                = th MOD is IL sorts SS ; 'DMBool . SUBSS (OPS addOpDecls(SS)) MBS EQS transformRules(RLS) endth . 
+    eq transformMod(smod MOD is IL sorts SS . SUBSS OPS MBS EQS RLS STTS STTD endsm)
+                = smod MOD is IL sorts SS ; 'DMBool . SUBSS (OPS addOpDecls(SS)) MBS EQS transformRules(RLS) STTS STTD endsm .
+    eq transformMod(sth MOD is IL sorts SS . SUBSS OPS MBS EQS RLS STTS STTD endsth)
+                = sth MOD is IL sorts SS ; 'DMBool . SUBSS (OPS addOpDecls(SS)) MBS EQS transformRules(RLS) STTS STTD endsth .
+
+    *** Add the dmc/\, dmc> and dmc= operators to handle conditions.
+    op addOpDecls : SortSet -> OpDeclSet .
+    eq addOpDecls(none) = none .
+    eq addOpDecls(SS)
+      = (op '_dmc/\_ : 'DMBool 'DMBool -> 'DMBool [ assoc ctor ] .) addOpDeclsAux(SS) .
+    op addOpDeclsAux : SortSet -> OpDeclSet .
+    eq addOpDeclsAux(none) = none .
+    eq addOpDeclsAux(S ; SS)
+      = (op '_dmc>_ : 'DMBool S -> S [ ctor ] .)
+        (op '_dmc=_ : S S -> 'DMBool [ ctor ] .)
+        addOpDeclsAux(SS) .
+
+    *** Transform conditional rules and extract the constraints
+    op transformRules : RuleSet -> RuleSet .
+    eq transformRules(RLS) = transformNuITPConditions(RLS) .
+
+    op transformNuITPConditions : RuleSet -> RuleSet .
+    eq transformNuITPConditions(RLS1 (crl LHS => RHS if nil [ATTRS] .) RLS2)
+                = transformNuITPConditions(RLS1 RLS2) (rl LHS => RHS [ATTRS narrowing] .) .
+    eq transformNuITPConditions(RLS1 (crl LHS => RHS if (CTR1 = CTR2) /\ COND1 [ATTRS] .) RLS2)
+                = transformNuITPConditions(RLS1 transformNuITPConditionsAux(crl LHS => '_dmc>_['_dmc=_[CTR1,CTR2],RHS] if COND1 [ATTRS] .) RLS2) .
+    eq transformNuITPConditions(RLS1) = RLS1 [owise] .
+
+    op transformNuITPConditionsAux : Rule -> Rule .
+    eq transformNuITPConditionsAux(crl LHS => RHS if nil [ATTRS] .)
+                =  (rl (LHS) => RHS [ATTRS narrowing] .) .
+    eq transformNuITPConditionsAux(crl LHS => '_dmc>_[CTR1,RHS] if (CTR2 = CTR3) /\ COND1 [ATTRS] .)
+                = transformNuITPConditionsAux(crl LHS => '_dmc>_['_dmc/\_[CTR1,'_dmc=_[CTR2,CTR3]],RHS] if COND1 [ATTRS] .) .
+    eq transformNuITPConditionsAux(crl LHS => RHS if COND1 [ATTRS] .)
+                = (crl LHS => RHS if COND1 [ATTRS] .) [owise] .
+endm
+
+mod COMMON-SYNTAX is
+    pr NuITP-EXT .
+    pr CONVERT-VARIABLES .
+    pr CONVERT-MODULE .
+    pr CONFIGURATION .
+
+    *** Matcher List
+    sorts Matcher NeMatcherList MatcherList .
+    subsort Matcher < NeMatcherList < MatcherList .
+    op _,_,_,_ : Nat Substitution? Term ProofState -> Matcher .
+    
+    op noMatch : -> MatcherList .
+    op _;_ : MatcherList MatcherList -> MatcherList [ ctor assoc id: noMatch ]  .
+    op _;_ : NeMatcherList MatcherList -> NeMatcherList [ ditto ] .
+    op _;_ : MatcherList NeMatcherList -> NeMatcherList [ ditto ] .
+
+    *** Node types (initial/generated/subsumed)
+    sort NodeType .
+    ops iNode gNode sNode itNode cNode : -> NodeType .
+    
+    op term:_ : Term -> Attribute [ ctor ] . *** Term related to the state
+    op lterm:_ : Term -> Attribute [ ctor ] . *** Left term related to the state (Intersection node)
+    op rterm:_ : Term -> Attribute [ ctor ] . *** Right term related to the state (Intersection node)
+    op pid:_ : Nat -> Attribute [ ctor ] . *** Parent ID
+    op ctr:_ : Term -> Attribute [ ctor ] . *** Constraint related to the state
+    op type:_ : Type -> Attribute [ ctor ] . *** Narrowing step type
+    op ctx:_ : Context -> Attribute [ ctor ] . *** Narrowing step context
+    op rule:_ : Qid -> AttributeSet [ ctor ] . *** Applied rule
+    op sub:_ : Substitution -> Attribute [ ctor ] . *** Narrowing step term substitution
+    op lsub:_ : Substitution -> Attribute [ ctor ] . *** Left substitution related to the state (Intersection node)
+    op rsub:_ : Substitution -> Attribute [ ctor ] . *** Right substitution related to the state (Intersection node)
+    op rlsub:_ : Substitution -> Attribute [ ctor ] . *** Narrowing step rule substitution
+    op acsub:_ : Substitution -> Attribute [ ctor ] . *** Accumulated substitution
+    op match:_ : MatcherList -> Attribute [ ctor ] . *** Matcher list (folding)
+    op ntype:_ : NodeType -> Attribute [ ctor ] . *** Node type
+    op ndepth:_ : Nat -> Attribute [ ctor ] . *** Node depth
+    op fold:_ : Bool -> Attribute [ ctor ] . *** Folded? (Meaning that a matcher was sat)
+
+    sorts Node NeNodeList NodeList . 
+    subsort Node < NeNodeList < NodeList .
+    op {_:_} : Nat AttributeSet -> Node [ ctor ] .
+    
+    op nil : -> NodeList [ ctor ] .
+    op _;_ : NodeList NodeList -> NodeList [ assoc id: nil ] . 
+    op _;_ : NeNodeList NodeList -> NeNodeList [ ditto ] . 
+    op _;_ : NodeList NeNodeList -> NeNodeList [ ditto ] .
+
+    op mod:_ : Module -> Attribute [ ctor ] .
+    op prev:_ : NodeList -> Attribute [ ctor ] . *** Previous nodes
+    op curr:_ : NodeList -> Attribute [ ctor ] . *** Current nodes
+    op next:_ : NodeList -> Attribute [ ctor ] . *** Future nodes
+    op init:_ : NodeList -> Attribute [ ctor ] . *** Initial nodes
+    op init':_ : NodeList -> Attribute [ ctor ] . *** Initial nodes
+    op inter:_ : NodeList -> Attribute [ ctor ] . *** Intersection nodes
+    op depth:_ : Nat -> Attribute [ ctor ] . *** Max depth
+    op cdepth:_ : Nat -> Attribute [ ctor ] . *** Current depth
+    op vos:_ : VariantOptionSet -> Attribute [ ctor ] .
+    op lemmas:_ : TermSet -> Attribute [ ctor ] .
+    op idcount:_ : Nat -> Attribute [ ctor ] . *** ID counter
+    op vcount:_ : Nat -> Attribute [ ctor ] . *** Variable counter
+
+    *** State
+    sort DMCState .
+    op <_> : AttributeSet -> DMCState .
+endm
+
+mod DM-CHECK-OUTPUT is
+    pr COMMON-SYNTAX .
+
+    sort ParentNode ParentNodeList .
+    subsort ParentNode < ParentNodeList .
+    
+    op noParents : -> ParentNodeList .
+    op _,_ : ParentNodeList ParentNodeList -> ParentNodeList [ ctor assoc id: noParents ] .
+    op [_,_,_,_,_] : Nat Term Term Substitution Nat -> ParentNode [ ctor ] .
+
+    sort ChildNode ChildNodeList .
+    subsort ChildNode < ChildNodeList .
+
+    op noChildren : -> ChildNodeList .
+    op _,_ : ChildNodeList ChildNodeList -> ChildNodeList [ ctor assoc id: noChildren ] .
+    op [_,_,_,_,_,_,_,_,_] : Nat Nat Term Term Qid Substitution Substitution MatcherList Nat -> ChildNode [ ctor ] . --- Check Invariant
+    op [_,_,_,_,_,_] : Nat Term Term Substitution MatcherList Nat -> ChildNode [ ctor ] . --- Check Subsumption
+    op [_,_,_,_,_,_,_] : Nat Term Term Term Term Substitution Substitution -> ChildNode [ ctor ] . --- Check Intersection
+
+    sort DMCOutput .
+    
+    op noSolution : -> DMCOutput [ ctor ] .
+    op _||_ : ParentNodeList ChildNodeList -> DMCOutput [ ctor ] .
+endm
+
+mod COMMON-OPERATIONS is
+    pr DM-CHECK-OUTPUT .
+
+    var M : Module .
+    vars NODES NODES' NODES'' NODES''' : NodeList .
+    vars NENODES NENODES' : NeNodeList .
+    vars NODE NODE' : Node .
+    vars ID ID' PID N IDCOUNT VCOUNT MCOUNT UCOUNT DEPTH : Nat .
+    vars T T' CTR CTR' : Term .
+    var LEMMAS : TermSet .
+    var TL : TermList .
+    var NETL : NeTermList .
+    var VOS : VariantOptionSet .
+    var ACSB SB SB' : Substitution .
+    var NATTRS NATTRS' : AttributeSet .
+    var TP : Type .
+    var CTX : Context .
+    var Q Q' : Qid .
+    var NEML : NeMatcherList .
+    vars MLIST MLIST' : MatcherList .
+    var UTRIPLE : UnificationTriple .
+    var PARENTS : ParentNodeList .
+    var NTS : NeTermSet .
+    var RL : Qid .
+    var V : Variable .
+
+    *** Check an invariant using the NuITP
+    op callNuITP : Module Term TermSet -> ProofState .
+    eq callNuITP(M, '_->_[CTR,'true.NuITP-Bool], LEMMAS) = sat .
+    eq callNuITP(M, '_->_[CTR,'_/\_['true.NuITP-Bool, CTR']], LEMMAS) 
+        = callNuITP(M, '_->_[CTR, CTR'], LEMMAS) .
+    eq callNuITP(M, '_->_[CTR,'_/\_[CTR', 'true.NuITP-Bool]], LEMMAS) 
+        = callNuITP(M, '_->_[CTR, CTR'], LEMMAS) .
+    eq callNuITP(M, CTR, LEMMAS) 
+        = metaNuITPCheck(M, CTR, LEMMAS) .
+
+    *** Count the nodes in a list
+    op countNodes : NodeList -> Nat .
+    eq countNodes(nil) = 0 .
+    eq countNodes(NODE ; NODES) = s(countNodes(NODES)) .
+
+    *** Count the variables in a list of nodes
+    op countNodeVars : NodeList -> Nat .
+    eq countNodeVars(nil) = 0 .
+    eq countNodeVars({ID : term: T, acsub: ACSB, ctr: CTR, NATTRS} ; NODES) 
+        = countVars(disjunctVars(getVars((T, CTR)) ;; getRangeVars(ACSB))) + countNodeVars(NODES) .
+
+    *** Check constraints for a list of nodes. Remove node if unsat
+    op checkConstraints : Module NodeList TermSet -> NodeList .
+    eq checkConstraints(M, nil, LEMMAS) = nil .
+    eq checkConstraints(M, {ID : ctr: CTR, NATTRS} ; NODES, LEMMAS) 
+        = if callNuITP(M, '_->_['true.NuITP-Bool, CTR], LEMMAS) == unsat
+          then checkConstraints(M, NODES, LEMMAS)
+          else {ID : ctr: CTR, NATTRS} ; checkConstraints(M, NODES, LEMMAS) 
+          fi .
+
+    *** Convert initial term pairs into nodes
+    op initNodes : Module TermList Nat Nat -> NodeList .
+    eq initNodes(M, empty, IDCOUNT, VCOUNT) = nil . 
+    eq initNodes(M, ('_|_[T, CTR], TL), IDCOUNT, VCOUNT)
+        = {IDCOUNT : term: applySub(T, rename(getVars((T, CTR)), VCOUNT)), 
+           ctr: applySub(CTR, rename(getVars((T, CTR)), VCOUNT)), 
+           acsub: rename(getVars((T, CTR)), VCOUNT), ndepth: 0, ntype: iNode} ; 
+           initNodes(M, TL, s(IDCOUNT), VCOUNT + countVars(getVars((T, CTR)))) .
+    
+    *** Convert initial term pairs into nodes (left part of check subsumed by)
+    op initNodes' : Module TermList Nat Nat -> NodeList .
+    eq initNodes'(M, empty, IDCOUNT, VCOUNT) = nil . 
+    eq initNodes'(M, ('_|_[T, CTR], TL), IDCOUNT, VCOUNT)
+        = {IDCOUNT : term: applySub(T, rename(getVars((T, CTR)), VCOUNT)), 
+           ctr: applySub(CTR, rename(getVars((T, CTR)), VCOUNT)), 
+           acsub: rename(getVars((T, CTR)), VCOUNT), ndepth: 0, ntype: sNode, 
+           match: noMatch, fold: false} ; 
+           initNodes'(M, TL, s(IDCOUNT), VCOUNT + countVars(getVars((T, CTR)))) .
+
+    *** Convert initial term pairs into nodes (left and right parts of intersect)
+    op initNodes'' : Module TermList Nat -> NodeList .
+    eq initNodes''(M, empty, IDCOUNT) = nil . 
+    eq initNodes''(M, ('_|_[T, CTR], TL), IDCOUNT)
+        = {IDCOUNT : term: T, ctr: CTR, acsub: none, ndepth: 0, ntype: iNode} ; 
+           initNodes''(M, TL, s(IDCOUNT)) .
+
+    *** Deploy the children of a list of nodes
+    op deployChildren : Module VariantOptionSet NodeList Nat -> NodeList .
+    eq deployChildren(M, VOS, nil, IDCOUNT) = nil .
+    eq deployChildren(M, VOS, NODES, IDCOUNT) 
+        = genIDs(deployChildren'(M, VOS, NODES), IDCOUNT) .
+
+
+    op deployChildren' : Module VariantOptionSet NodeList -> NodeList .
+    eq deployChildren'(M, VOS, nil) = nil .
+    eq deployChildren'(M, VOS, ({ID : ndepth: 0, NATTRS} ; NODES)) 
+        = deployChildren''(M, VOS, {ID : ndepth: 0, NATTRS}, 0) ; deployChildren'(M, VOS, NODES) .
+    eq deployChildren'(M, VOS, ({ID : fold: true, NATTRS} ; NODES)) 
+        = deployChildren'(M, VOS, NODES) .
+    eq deployChildren'(M, VOS, ({ID : fold: false, NATTRS} ; NODES)) 
+        = deployChildren''(M, VOS, {ID : fold: false, NATTRS}, 0) ; deployChildren'(M, VOS, NODES) [owise] .
+
+    op deployChildren'' : Module VariantOptionSet Node Nat -> NodeList .
+    eq deployChildren''(M, VOS, {ID : term: T, ctr: CTR, acsub: ACSB, ndepth: DEPTH, NATTRS}, N)
+        = if metaNarrowingApply(M, T, empty, '@, VOS, N) :: NarrowingApplyResult
+          then 
+            buildNode(metaNarrowingApply(M, T, empty, '@, VOS, N), ID, CTR, ACSB, s(DEPTH)) ;
+            deployChildren''(M, VOS, {ID : term: T, ctr: CTR, acsub: ACSB, ndepth: DEPTH, NATTRS}, s(N))
+          else
+            nil
+          fi .
+
+    *** Generate new IDs for nodes starting from a number 
+    op genIDs : NodeList Nat -> NodeList .
+    eq genIDs(nil, N) = nil .
+    eq genIDs(({ID : NATTRS} ; NODES), N) = {N : NATTRS} ; genIDs(NODES, s(N)) .
+
+    *** Build a new node coming from a narrowing step
+    op buildNode : NarrowingApplyResult Nat Term Substitution Nat -> Node .
+    eq buildNode({('_dmc>_[CTR, T]), TP, CTX, Q, SB, SB', Q'}, ID, CTR', ACSB, DEPTH)
+        = {0 : pid: ID, term: T, ctr: ('_dmc/\_[applySub(CTR', SB), CTR]), type: TP, ctx: CTX, rule: Q,
+           sub: SB, rlsub: SB', acsub: applySub(ACSB, SB), match: noMatch, ndepth: DEPTH, ntype: gNode, fold: false} .
+    eq buildNode({T, TP, CTX, Q, SB, SB', Q'}, ID, CTR, ACSB, DEPTH)
+        = {0 : pid: ID, term: T, ctr: applySub(CTR, SB), type: TP, ctx: CTX, rule: Q,
+           sub: SB, rlsub: SB', acsub: applySub(ACSB, SB), match: noMatch, ndepth: DEPTH, ntype: gNode, fold: false} [owise] .
+    
+    *** Build a new intersection node coming from unifying two nodes
+    op buildIntersectionNode : Term Term Term Term UnificationTriple -> Node .
+    eq buildIntersectionNode(T, T', CTR, CTR', UTRIPLE)
+        = {0 : lterm: T, rterm: T', lsub: getLhsSubstitution(UTRIPLE), rsub: getRhsSubstitution(UTRIPLE), ntype: itNode,
+           ctr: ('_/\_[applySub(CTR, getLhsSubstitution(UTRIPLE)), applySub(CTR', getRhsSubstitution(UTRIPLE))])} .
+
+    *** Rename the variables in a list of nodes
+    op renameNodes : NodeList Nat -> NodeList .
+    eq renameNodes(nil, VCOUNT) = nil .
+    eq renameNodes({ID : term: T, ctr: CTR, acsub: ACSB, NATTRS} ; NODES, VCOUNT)
+        = {ID : 
+           term: applySub(T, rename(getVars((T, CTR)) ;; getRangeVars(ACSB), VCOUNT)),
+           ctr: applySub(CTR, rename(getVars((T, CTR)) ;; getRangeVars(ACSB), VCOUNT)),
+           acsub: applySub(ACSB, rename(getVars((T, CTR)) ;; getRangeVars(ACSB), VCOUNT)), 
+           NATTRS} ; 
+           renameNodes(NODES, VCOUNT + countVars(getVars((T, CTR)) ;; getRangeVars(ACSB))) .
+
+    *** Check the if a group of states is subsumed by others
+    op checkSubsumption : Module NodeList NodeList VariantOptionSet TermSet -> NodeList .
+    eq checkSubsumption(M, nil, NODES, VOS, LEMMAS) = nil .
+    eq checkSubsumption(M, NODES, nil, VOS, LEMMAS) = NODES .
+    eq checkSubsumption(M, NENODES, (NODES ; {ID : match: NEML, NATTRS} ; NODES'), VOS, LEMMAS) 
+        = checkSubsumption(M, NENODES, (NODES ; NODES'), VOS, LEMMAS) .
+    eq checkSubsumption(M, NENODES, NENODES', VOS, LEMMAS) 
+        = checkSubsumption'(M, NENODES, NENODES', VOS, LEMMAS) [owise] .
+
+    op checkSubsumption' : Module NodeList NodeList VariantOptionSet TermSet -> NodeList .
+    eq checkSubsumption'(M, nil, NENODES, VOS, LEMMAS) = nil .
+    eq checkSubsumption'(M, (NODE ; NODES), NENODES, VOS, LEMMAS) 
+        = checkNodeSubsumption(M, NODE, NENODES, VOS, LEMMAS, 0) ; checkSubsumption'(M, NODES, NENODES, VOS, LEMMAS) .
+
+    *** Check the if a state is subsumed by others
+    op checkNodeSubsumption : Module Node NodeList VariantOptionSet TermSet Nat -> Node .
+    eq checkNodeSubsumption(M, NODE, nil, VOS, LEMMAS, MCOUNT) = NODE .
+    eq checkNodeSubsumption(M, {ID : term: T, ctr: CTR, match: MLIST, NATTRS}, ({ID' : term: T', ctr: CTR', NATTRS'} ; NODES), VOS, LEMMAS, MCOUNT)
+        = if metaVariantMatch(M, T' <=? T, empty, '@, VOS, MCOUNT) :: Substitution
+          then
+            checkNodeSubsumption'(M, 
+                                  {ID : term: T, ctr: CTR, 
+                                  match: (MLIST ; 
+                                         (ID', 
+                                          metaVariantMatch(M, T' <=? T, empty, '@, VOS, MCOUNT),
+                                          '_->_[CTR,applySub(CTR', metaVariantMatch(M, T' <=? T, empty, '@, VOS, MCOUNT))],
+                                          callNuITP(M, '_->_[CTR,applySub(CTR', metaVariantMatch(M, T' <=? T, empty, '@, VOS, MCOUNT))], LEMMAS)
+                                         )),
+                                  NATTRS}, 
+                                  ({ID' : term: T', ctr: CTR', NATTRS'} ; NODES), VOS, LEMMAS, MCOUNT)
+          else
+            checkNodeSubsumption(M, {ID : term: T, ctr: CTR, match: MLIST, NATTRS}, NODES, VOS, LEMMAS, 0)
+          fi .
+
+    op checkNodeSubsumption' : Module Node NodeList VariantOptionSet TermSet Nat -> Node .
+    eq checkNodeSubsumption'(M, {ID : match: (MLIST ; (ID', SB, CTR, sat)), NATTRS}, NODES, VOS, LEMMAS, MCOUNT)
+        = {ID : match: (MLIST ; (ID', SB, CTR, sat)), fold: true, NATTRS} .
+    eq checkNodeSubsumption'(M, NODE, NODES, VOS, LEMMAS, MCOUNT)
+        = checkNodeSubsumption(M, NODE, NODES, VOS, LEMMAS, s(MCOUNT)) [owise] .
+
+    *** Intersect two lists of nodes
+    op intersectLists : Module NodeList NodeList VariantOptionSet Nat -> NodeList .
+    eq intersectLists(M, nil, NODES', VOS, IDCOUNT) = nil .
+    eq intersectLists(M, NODES, nil, VOS, IDCOUNT) = nil .
+    eq intersectLists(M, NENODES, NENODES', VOS, IDCOUNT) 
+        =  genIDs(intersectLists'(M, NENODES, NENODES', VOS), IDCOUNT) .
+
+    op intersectLists' : Module NodeList NodeList VariantOptionSet -> NodeList .
+    eq intersectLists'(M, nil, NODES, VOS) = nil .
+    eq intersectLists'(M, (NODE ; NODES), NENODES, VOS)
+        = intersectNodeLists(M, NODE, NENODES, VOS) ; intersectLists'(M, NODES, NENODES, VOS) .
+
+    *** Intersect a node with a list of nodes
+    op intersectNodeLists : Module Node NodeList VariantOptionSet -> NodeList .
+    eq intersectNodeLists(M, NODE, nil, VOS) = nil .
+    eq intersectNodeLists(M, NODE, (NODE' ; NODES), VOS) 
+        = intersect(M, NODE, NODE', VOS, 0) ; intersectNodeLists(M, NODE, NODES, VOS)   .
+
+    *** Get the intersection nodes between two nodes
+    op intersect : Module Node Node VariantOptionSet Nat -> NodeList .
+    eq intersect(M, {ID : term: T, ctr: CTR, NATTRS}, {ID' : term: T', ctr: CTR', NATTRS'}, VOS, UCOUNT)
+        = if metaVariantDisjointUnify(M, T =? T', empty, '@, VOS, UCOUNT) :: UnificationTriple
+          then
+            buildIntersectionNode(T, T', CTR, CTR', metaVariantDisjointUnify(M, T =? T', empty, '@, VOS, UCOUNT)) ;
+            intersect(M, {ID : term: T, ctr: CTR, NATTRS}, {ID' : term: T', ctr: CTR', NATTRS'}, VOS, s(UCOUNT))
+          else 
+            nil 
+          fi .
+
+    *** Rebuild parents using a ParentNodeList output
+    op rebuildParents : ParentNodeList -> NodeList .
+    eq rebuildParents(noParents) = nil .
+    eq rebuildParents([ ID, T, CTR, ACSB, 0 ], PARENTS) 
+        = {ID : term: T, ctr: CTR, acsub: ACSB, ndepth: 0, ntype: iNode} ; rebuildParents(PARENTS) .
+
+    *** Generate node instances using the genset
+    op genInstances : ChildNode Nat Variable TermSet -> NodeList .
+    eq genInstances([ ID, PID, T', CTR, RL, SB, ACSB, MLIST, DEPTH ], N, V, mt) = nil .
+    eq genInstances([ ID, PID, T', CTR, RL, SB, ACSB, MLIST, DEPTH ], N, V, T) 
+        = {N : pid: PID, term: applySub(T', V <- T), ctr: applySub(CTR, V <- T), rule: RL,
+           sub: applySub(SB, V <- T), acsub: applySub(ACSB, V <- T), match: noMatch, 
+           ndepth: DEPTH, ntype: cNode, fold: false} .
+    eq genInstances([ ID, PID, T', CTR, RL, SB, ACSB, MLIST, DEPTH ], N, V, T ;; NTS) 
+        = {N : pid: PID, term: applySub(T', V <- T), ctr: applySub(CTR, V <- T), rule: RL,
+           sub: applySub(SB, V <- T), acsub: applySub(ACSB, V <- T), match: noMatch, 
+           ndepth: DEPTH, ntype: cNode, fold: false} ;
+           genInstances([ ID, PID, T', CTR, RL, SB, ACSB, MLIST, DEPTH ], N + 1, V, NTS)  .
+endm 
+
+mod CHECK-INVARIANT is
+    pr COMMON-OPERATIONS .
+
+    var M : Module .
+    var NETL : NeTermList .
+    var VOS : VariantOptionSet .
+    var LEMMAS : TermSet .
+    vars N ID PID DEPTH DEPTH' NDEPTH  VCOUNT IDCOUNT : Nat .
+    var NATTRS : AttributeSet .
+    var SATTRS : AttributeSet .
+    vars NODES NODES' NODES'' : NodeList .
+    var PARENTS : ParentNodeList .
+    var CHILDREN : ChildNodeList .
+    vars T T' CTR : Term .
+    vars ACSB SB : Substitution .
+    var RL : Qid .
+    var MLIST : MatcherList .
+    var OUTPUT : DMCOutput .
+
+    *** Process the output for the check invariants command
+    op outputInv : NodeList -> DMCOutput .
+    eq outputInv(NODES) = outputInv'(noParents || noChildren, NODES) .
+
+    op outputInv' : DMCOutput NodeList -> DMCOutput .
+    eq outputInv'(OUTPUT, nil) = OUTPUT .
+    eq outputInv'((PARENTS || CHILDREN), ({ID : term: T, ctr: CTR, acsub: ACSB, ntype: iNode, ndepth: 0} ; NODES))
+        = outputInv'((PARENTS , [ID, T, CTR, ACSB, 0] || CHILDREN), NODES) .
+    eq outputInv'((PARENTS || CHILDREN), ({ID : fold: true, NATTRS} ; NODES))
+        = outputInv'((PARENTS || CHILDREN), NODES) .
+    eq outputInv'((PARENTS || CHILDREN), ({ID : fold: false, pid: PID, term: T, ctr: CTR, rule: RL, sub: SB, acsub: ACSB, match: MLIST, ntype: gNode, ndepth: N, NATTRS} ; NODES))
+        = outputInv'((PARENTS || CHILDREN, [ID, PID, T, CTR, RL, SB, ACSB, MLIST, N]), NODES) .
+
+    *** Initialize the check invariants command
+    op checkInvariants : Module NeTermList TermSet -> DMCOutput .
+    eq checkInvariants(M, NETL, LEMMAS)
+        = nextLevel(< mod: M, prev: nil, curr: checkConstraints(M, initNodes(M, NETL, 1, 1), LEMMAS), 
+                           next: nil, depth: 1, cdepth: 0, vos: none, lemmas: LEMMAS, 
+                           idcount: (1 + countNodes(checkConstraints(M, initNodes(M, NETL, 1, 1), LEMMAS))), 
+                           vcount: (1 + countNodeVars(checkConstraints(M, initNodes(M, NETL, 1, 1), LEMMAS))) >) .
+
+    op checkInvariants : Module NeTermList TermSet Nat -> DMCOutput .
+    eq checkInvariants(M, NETL, LEMMAS, DEPTH)
+        = nextLevel(< mod: M, prev: nil, curr: checkConstraints(M, initNodes(M, NETL, 1, 1), LEMMAS), 
+                           next: nil, depth: DEPTH, cdepth: 0, vos: none, lemmas: LEMMAS, 
+                           idcount: (1 + countNodes(checkConstraints(M, initNodes(M, NETL, 1, 1), LEMMAS))), 
+                           vcount: (1 + countNodeVars(checkConstraints(M, initNodes(M, NETL, 1, 1), LEMMAS))) >) .
+
+    op checkInvariants : Module NeTermList VariantOptionSet TermSet -> DMCOutput .
+    eq checkInvariants(M, NETL, VOS, LEMMAS)
+        = nextLevel(< mod: M, prev: nil, curr: checkConstraints(M, initNodes(M, NETL, 1, 1), LEMMAS), 
+                           next: nil, depth: 1, cdepth: 0, vos: VOS, lemmas: LEMMAS, 
+                           idcount: (1 + countNodes(checkConstraints(M, initNodes(M, NETL, 1, 1), LEMMAS))), 
+                           vcount: (1 + countNodeVars(checkConstraints(M, initNodes(M, NETL, 1, 1), LEMMAS))) >) .
+
+    op checkInvariants : Module NeTermList VariantOptionSet TermSet Nat -> DMCOutput .
+    eq checkInvariants(M, NETL, VOS, LEMMAS, DEPTH)
+        = nextLevel(< mod: M, prev: nil, curr: checkConstraints(M, initNodes(M, NETL, 1, 1), LEMMAS), 
+                           next: nil, depth: DEPTH, cdepth: 0, vos: VOS, lemmas: LEMMAS, 
+                           idcount: (1 + countNodes(checkConstraints(M, initNodes(M, NETL, 1, 1), LEMMAS))), 
+                           vcount: (1 + countNodeVars(checkConstraints(M, initNodes(M, NETL, 1, 1), LEMMAS))) >) .
+
+    *** Generate the next level of the search space
+    op nextLevel : DMCState -> DMCOutput .
+    eq nextLevel(< mod: M, vos: VOS, depth: DEPTH, cdepth: DEPTH', prev: NODES, curr: NODES', next: nil, idcount: IDCOUNT, vcount: VCOUNT, SATTRS >)
+        = if DEPTH == 0 or-else DEPTH' < DEPTH
+          then
+            checkNewConstraints(< mod: M, vos: VOS, depth: DEPTH, cdepth: s(DEPTH'), prev: (NODES ; NODES'), curr: nil, 
+                              next: renameNodes(deployChildren(M, VOS, NODES', IDCOUNT), VCOUNT), 
+                              idcount: (IDCOUNT + countNodes(deployChildren(M, VOS, NODES', IDCOUNT))),
+                              vcount: (VCOUNT + countNodeVars(renameNodes(deployChildren(M, VOS, NODES', IDCOUNT), VCOUNT))), SATTRS >)
+          else   
+            outputInv(NODES ; NODES')
+          fi .
+
+    *** Check the constraints of new states
+    op checkNewConstraints : DMCState -> DMCOutput .
+    eq checkNewConstraints(< prev: NODES, next: nil, SATTRS >) 
+        = outputInv(NODES) .
+    eq checkNewConstraints(< mod: M, next: NODES, lemmas: LEMMAS, SATTRS >) 
+        = checkFolding(< mod: M, next: checkConstraints(M, NODES, LEMMAS), lemmas: LEMMAS, SATTRS >) [owise] .
+
+    *** Check folding for new states
+    op checkFolding : DMCState -> DMCOutput .
+    eq checkFolding(< prev: NODES, next: nil, SATTRS >) 
+        = outputInv(NODES) .
+    eq checkFolding(< mod: M, vos: VOS, lemmas: LEMMAS, prev: NODES, curr: nil, next: NODES', SATTRS >) 
+        = nextLevel(< mod: M, vos: VOS, lemmas: LEMMAS, prev: NODES, 
+                      curr: checkSubsumption(M, NODES', NODES, VOS, LEMMAS), 
+                      next: nil, SATTRS >) [owise] .
+endm 
+
+mod CHECK-SUBSUMED is
+    pr COMMON-OPERATIONS .
+
+    var M : Module .
+    vars NETL NETL' : NeTermList .
+    var VOS : VariantOptionSet .
+    var LEMMAS : TermSet .
+    var NODES : NodeList .
+    vars ID IDCOUNT VCOUNT : Nat .
+    var SATTRS : AttributeSet .
+    var PARENTS : ParentNodeList .
+    var CHILDREN : ChildNodeList .
+    vars T T' CTR : Term .
+    var ACSB : Substitution .
+    var NATTRS : AttributeSet .
+    var MLIST : MatcherList .
+    var OUTPUT : DMCOutput .
+
+    *** Process the output for the subsumed command
+    op outputSub : NodeList -> DMCOutput .
+    eq outputSub(NODES) = outputSub'(noParents || noChildren, NODES) .
+
+    op outputSub' : DMCOutput NodeList -> DMCOutput .
+    eq outputSub'(OUTPUT, nil) = OUTPUT .
+    eq outputSub'((PARENTS || CHILDREN), ({ID : term: T, ctr: CTR, acsub: ACSB, ntype: iNode, ndepth: 0} ; NODES))
+        = outputSub'((PARENTS, [ID, T, CTR, ACSB, 0] || CHILDREN), NODES) .
+    eq outputSub'((PARENTS || CHILDREN), ({ID : fold: true, NATTRS} ; NODES))
+        = outputSub'((PARENTS || CHILDREN), NODES) .
+    eq outputSub'((PARENTS || CHILDREN), ({ID : fold: false, term: T, ctr: CTR, acsub: ACSB, match: MLIST, ntype: sNode, ndepth: 0} ; NODES))
+        = outputSub'((PARENTS || CHILDREN, [ID, T, CTR, ACSB, MLIST, 0]), NODES) .
+
+    *** Initialize the check subsumed command
+    op checkSubsumed : Module NeTermList NeTermList TermSet -> DMCOutput .
+    eq checkSubsumed(M, NETL, NETL', LEMMAS)
+        = checkSubsumed'(< mod: M, vos: none, lemmas: LEMMAS, 
+                           init: checkConstraints(M, initNodes(M, NETL', 1, 1), LEMMAS), 
+                           idcount: (1 + countNodes(checkConstraints(M, initNodes(M, NETL', 1, 1), LEMMAS))), 
+                           vcount: (1 + countNodeVars(checkConstraints(M, initNodes(M, NETL', 1, 1), LEMMAS))) >,
+                           NETL) .
+
+    op checkSubsumed : Module NeTermList NeTermList VariantOptionSet TermSet -> DMCOutput .
+    eq checkSubsumed(M, NETL, NETL', VOS, LEMMAS)
+        = checkSubsumed'(< mod: M, vos: VOS, lemmas: LEMMAS, 
+                           init: checkConstraints(M, initNodes(M, NETL', 1, 1), LEMMAS), 
+                           idcount: (1 + countNodes(checkConstraints(M, initNodes(M, NETL', 1, 1), LEMMAS))), 
+                           vcount: (1 + countNodeVars(checkConstraints(M, initNodes(M, NETL', 1, 1), LEMMAS))) >,
+                           NETL) .
+
+    *** Initialize the rest of states and check subsumption
+    op checkSubsumed' : DMCState NeTermList -> DMCOutput .
+    eq checkSubsumed'(< mod: M, vos: VOS, lemmas: LEMMAS, init: NODES, idcount: IDCOUNT, vcount: VCOUNT, SATTRS >, NETL)
+        = outputSub( NODES ; checkSubsumption(M, initNodes'(M, NETL, IDCOUNT, VCOUNT), NODES, VOS, LEMMAS)) .
+endm
+
+mod CHECK-INTERSECTION is
+    pr COMMON-OPERATIONS .
+
+    var M : Module .
+    vars NETL NETL' : NeTermList .
+    var VOS : VariantOptionSet .
+    var LEMMAS : TermSet .
+    var SATTRS : AttributeSet .
+    vars ID IDCOUNT : Nat .
+    vars NODES NODES' NODES'' : NodeList .
+    vars T T' CTR : Term .
+    vars LSB RSB ACSB : Substitution .
+    var OUTPUT : DMCOutput .
+    var PARENTS : ParentNodeList .
+    var CHILDREN : ChildNodeList .
+
+    *** Process the output for the intersection command
+    op outputInt : NodeList -> DMCOutput .
+    eq outputInt(NODES) = outputInt'(noParents || noChildren, NODES) .
+
+    op outputInt' : DMCOutput NodeList -> DMCOutput .
+    eq outputInt'(OUTPUT, nil) = OUTPUT .
+    eq outputInt'(PARENTS || CHILDREN, {ID : term: T, ctr: CTR, acsub: ACSB, ndepth: 0, ntype: iNode} ; NODES) = 
+        outputInt'((PARENTS, [ID, T, CTR, ACSB, 0]) || CHILDREN, NODES) .
+    eq outputInt'(PARENTS || CHILDREN, {ID : lterm: T, rterm: T', ctr: CTR, lsub: LSB, rsub: RSB, ntype: itNode} ; NODES) = 
+        outputInt'(PARENTS || (CHILDREN, [ID, applySub(T, LSB), T, T', CTR, LSB, RSB]), NODES) .
+    eq outputInt'(PARENTS || CHILDREN, {ID : lterm: T, rterm: T', ctr: CTR, lsub: LSB, rsub: RSB, ntype: itNode} ; NODES) = 
+        outputInt'(PARENTS || (CHILDREN, [ID, applySub(T, LSB), T, T', CTR, LSB, RSB]), NODES) .
+
+    *** Check the intersection between two list of pair terms
+    op checkIntersection : Module NeTermList NeTermList TermSet -> DMCOutput .
+    eq checkIntersection(M, NETL, NETL', LEMMAS)
+        = checkIntersection'(< mod: M, vos: none, lemmas: LEMMAS, 
+                               init: checkConstraints(M, initNodes''(M, NETL, 1), LEMMAS),
+                               idcount: (1 + countNodes(checkConstraints(M, initNodes''(M, NETL, 1), LEMMAS))) >, NETL') .
+
+    op checkIntersection : Module NeTermList NeTermList VariantOptionSet TermSet -> DMCOutput .
+    eq checkIntersection(M, NETL, NETL', VOS, LEMMAS)
+        = checkIntersection'(< mod: M, vos: VOS, lemmas: LEMMAS, 
+                               init: checkConstraints(M, initNodes''(M, NETL, 1), LEMMAS),
+                               idcount: (1 + countNodes(checkConstraints(M, initNodes''(M, NETL, 1), LEMMAS))) >, NETL') .
+
+    op checkIntersection' : DMCState NeTermList -> DMCOutput .
+    eq checkIntersection'(< SATTRS, mod: M, lemmas: LEMMAS, idcount: IDCOUNT >, NETL)
+        = getIntersection(< SATTRS, mod: M, lemmas: LEMMAS, 
+                            init': checkConstraints(M, initNodes''(M, NETL, IDCOUNT), LEMMAS), 
+                            idcount: (IDCOUNT + countNodes(checkConstraints(M, initNodes''(M, NETL, IDCOUNT), LEMMAS))) >) .
+
+    op getIntersection : DMCState -> DMCOutput .
+    eq getIntersection(< mod: M, vos: VOS, lemmas: LEMMAS, init: NODES, init': NODES', idcount: IDCOUNT >)
+        = checkIntersectionConstraints(< mod: M, vos: VOS, lemmas: LEMMAS, init: NODES, init': NODES',
+                                         inter: intersectLists(M, NODES, NODES', VOS, IDCOUNT),
+                                         idcount: (IDCOUNT + countNodes(intersectLists(M, NODES, NODES', VOS, IDCOUNT))) >) .
+    
+    op checkIntersectionConstraints : DMCState -> DMCOutput .
+    eq checkIntersectionConstraints(< SATTRS, mod: M, lemmas: LEMMAS, init: NODES, init': NODES', inter: NODES'' >)
+        = outputInt(NODES ; NODES' ; checkConstraints(M, NODES'', LEMMAS)) .
+endm
+
+mod CASE is
+    pr COMMON-OPERATIONS .
+
+    var M : Module .
+    var PARENTS : ParentNodeList .
+    var CHILD : ChildNode .
+    var CHILDREN : ChildNodeList .
+    var V : Variable .
+    var VOS : VariantOptionSet .
+    vars GENSET LEMMAS : TermSet .
+    var ID PID IDCOUNT N : Nat .
+    vars T CTR : Term .
+    var SB ACSB : Substitution .
+    var OUTPUT : DMCOutput .
+    var RL : Qid .
+    var MLIST : MatcherList .
+    var SATTRS NATTRS : AttributeSet .
+    vars NODES NODES' : NodeList .
+
+    *** Process the output for the case command
+    op outputCase : NodeList -> ChildNodeList .
+    eq outputCase(NODES) = outputCase'(noChildren, NODES) .
+
+    op outputCase' : ChildNodeList NodeList -> ChildNodeList .
+    eq outputCase'(CHILDREN, nil) = CHILDREN .
+    eq outputCase'(CHILDREN, ({ID : term: T, ctr: CTR, acsub: ACSB, ntype: iNode, ndepth: 0} ; NODES))
+        = outputCase'(CHILDREN, NODES) .
+    eq outputCase'(CHILDREN, ({ID : fold: true, NATTRS} ; NODES))
+        = outputCase'(CHILDREN, NODES) .
+    eq outputCase'(CHILDREN, ({ID : fold: false, pid: PID, term: T, ctr: CTR, rule: RL, sub: SB, acsub: ACSB, match: MLIST, ndepth: N, ntype: cNode, NATTRS} ; NODES))
+        = outputCase'((CHILDREN, [ID, PID, T, CTR, RL, SB, ACSB, MLIST, N]), NODES) .
+
+
+    *** Initialize the case command
+    op case : Module ParentNodeList ChildNode Variable TermSet Nat VariantOptionSet TermSet -> ChildNodeList .
+    eq case(M, PARENTS, CHILD, V, GENSET, IDCOUNT, VOS, LEMMAS)
+        = checkCase(< mod: M, vos: VOS, lemmas: LEMMAS, 
+                          init: rebuildParents(PARENTS),
+                          next: checkConstraints(M, genInstances(CHILD, IDCOUNT, V, GENSET), LEMMAS) >) .
+
+    *** Check the subsumption for the case command
+    op checkCase : DMCState -> ChildNodeList .
+    eq checkCase(< mod: M, vos: VOS, lemmas: LEMMAS, init: NODES, next: NODES', SATTRS >)
+        = outputCase( NODES ; checkSubsumption(M, NODES', NODES, VOS, LEMMAS)) .
+endm
+
+*** CASE COMMAND:
+*** - Padres para el subsumed 
+*** - Hijo usado para generar
+*** - Variable del hijo a instanciar
+*** - Generator set (T ;; T' ...)
+*** - Para cada termino del genset crear nuevo hijo, y devolver noChildren o un hijo por termino del genset 
+*** case(Module, ParentNodeList, ChildNode, Variable, TermSet) -> ChildNodeList
+
+mod DM-CHECK is
+    pr CHECK-INVARIANT .
+    pr CHECK-SUBSUMED .
+    pr CHECK-INTERSECTION .
+    pr CASE .
+endm
+
+eof

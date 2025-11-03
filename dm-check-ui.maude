@@ -1,0 +1,554 @@
+***(
+Copyright 2023-2025 Universitat Politècnica de València, Spain
+
+This program is free software: you can redistribute it and/or modify it under the terms 
+of the GNU General Public License as published by the Free Software Foundation, either 
+version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+)***
+
+set show advisories off .
+load dm-check.maude
+
+mod DM-CHECK-DISJUNCTION is
+    pr QID-LIST .
+    pr TRUTH-VALUE .
+
+    sorts Eq ConjEq ConstTerm Disjunction Bubble .
+    subsort ConstTerm < Disjunction .
+    subsorts Eq < ConjEq < Bool .
+    
+    op bubble : QidList -> Bubble [ special (id-hook Bubble (1 -1 `( `)) op-hook qidListSymbol (__ : QidList QidList ~> QidList) op-hook qidSymbol (<Qids> : ~> Qid) id-hook Exclude ( \/ /\ | = )) ] .
+
+    op _\/_ : Disjunction Disjunction -> Disjunction [ ctor assoc prec 60 ] .
+    op _|_ : Bubble Bool -> ConstTerm [ ctor prec 50 ] .
+    op _=_ : Bubble Bubble -> Eq [ ctor prec 40 ] .
+    op _/\_ : ConjEq ConjEq -> ConjEq [ ctor assoc prec 45 ] .
+endm
+
+mod DM-CHECK-STRING is
+    pr DM-CHECK .
+    pr LEXICAL .
+    
+    var M : Module .
+    var Q RL : Qid .
+    var NTL : NeTermList .
+    var LEMMAS? : TermSet .
+    var LEMMAS : NeTermSet .
+    vars T T' T'' TERM CTR IMPLICATION CONSTRAINT LEMMA : Term .
+    var TL : TermList .
+    vars ID PID MID N : Nat .
+    var PROOF PROOF' : ProofState .
+    var MATCH? : Substitution? .
+    vars MATCH SB SB1 SB2 ACSB LSB RSB : Substitution .
+    var NAR : NarrowingApplyResult .
+    var V : Variable .
+    var ML ML1 ML2 : MatcherList .
+    var NML : NeMatcherList .
+    var POS : String .
+    var PARENTS : ParentNodeList .
+    vars CHILDREN CHILDREN1 CHILDREN2 : ChildNodeList .
+
+    --- Error Messages
+    op errorMsg : Nat -> String .
+    eq errorMsg(0) = "\n\033[1;31m  Warning:\033[0m unexpected error.\n\n" .
+    eq errorMsg(1) = "\n\033[1;31m  Warning:\033[0m module not loaded.\n\n" .
+    eq errorMsg(2) = "\n\033[1;31m  Warning:\033[0m error parsing invariant.\n\n" .
+    eq errorMsg(3) = "\n\033[1;31m  Warning:\033[0m error parsing command.\n\n" .
+    eq errorMsg(4) = "\n\033[1;31m  Warning:\033[0m error parsing lemma.\n\n" .
+    eq errorMsg(5) = "\n\033[1;31m  Warning:\033[0m no last result saved.\n\n" .
+    eq errorMsg(6) = "\n\033[1;31m  Warning:\033[0m no child found.\n\n" .
+    eq errorMsg(7) = "\n\033[1;31m  Warning:\033[0m no matcher found.\n\n" .
+    eq errorMsg(8) = "\n\033[1;31m  Warning:\033[0m no lemma found.\n\n" .
+    eq errorMsg(9) = "\n\033[1;31m  Warning:\033[0m case only available for check invariant results.\n\n" .
+    eq errorMsg(10) = "\n\033[1;31m  Warning:\033[0m error parsing variable.\n\n" .
+    eq errorMsg(11) = "\n\033[1;31m  Warning:\033[0m error parsing generator set.\n\n" .
+    eq errorMsg(12) = "\n\033[1;31m  Warning:\033[0m variable clash between generator set and child.\n\n" .
+
+    op toString : Module TermList -> String .
+    eq toString(M, 'true.NuITP-Bool) = "true" .
+    eq toString(M, 'false.NuITP-Bool) = "false" .
+    eq toString(M, TL) = toString'(M, TL) [ owise ] .
+
+    op toString' : Module TermList -> String .
+    eq toString'(M, (empty).TermList) = "" .
+    eq toString'(M, T) = metaPrintToString(M, none, T, mixfix, none) .
+    eq toString'(M, (T,NTL)) = metaPrintToString(M, none, T, mixfix, none) + "\n" + toString(M,NTL) .
+
+    op toString : Module Substitution -> String .
+    eq toString(M, (none).Substitution) = "  none" .
+    eq toString(M, V <- T) = "  " + toString(M, V) + " --> " + toString(M, T) .
+    eq toString(M, V <- T ; SB) = "  " + toString(M, V) + " --> " + toString(M, T) + "\n" + toString(M, SB) [ owise ] .
+
+    op toStringParents : Module ParentNodeList -> String .
+    eq toStringParents(M, noParents) = "" .
+    eq toStringParents(M, [ ID, T, CTR, ACSB, 0 ]) = 
+        "\nParent " + string(ID, 10) + 
+        "\nTerm:\n  " + toString(M, T) + 
+        "\nConstraint:\n  " + toString(M, CTR) 
+        .
+    eq toStringParents(M, ([ ID, T, CTR, ACSB, 0 ], PARENTS)) = toStringParents(M, [ ID, T, CTR, ACSB, 0 ]) + "\n" + toStringParents(M, PARENTS) .
+    
+    op toStringMatcherListInv : Module MatcherList Nat -> String .
+    eq toStringMatcherListInv(M, noMatch, N) = "" .
+    eq toStringMatcherListInv(M, (MID, MATCH, IMPLICATION, PROOF) ; ML, N) = "\nMatching parent #" + string(N, 10) + ": " + string(MID, 10) + "\nMatching substitution #" + string(N, 10) + ":\n" + toString(M, MATCH) + "\nNuITP implication #" + string(N, 10) + " (" + toStringProofState(PROOF) + "):\n" + toString(M, IMPLICATION) + toStringMatcherListInv(M, ML, N + 1) .
+
+    op toStringMatcherListSub : Module MatcherList Nat -> String .
+    eq toStringMatcherListSub(M, noMatch, N) = "" .
+    eq toStringMatcherListSub(M, (MID, MATCH, IMPLICATION, PROOF) ; ML, N) = "\nNuITP implication (" + toStringProofState(PROOF) + "):\n  " + toString(M, IMPLICATION) + toStringMatcherListSub(M, ML, N + 1) .
+
+    op toStringProofState : ProofState -> String .
+    eq toStringProofState(sat) = "sat" .
+    eq toStringProofState(open) = "open" .
+    eq toStringProofState(unsat) = "unsat" .
+    
+    op toStringChildrenInv : Module ChildNodeList -> String .
+    eq toStringChildrenInv(M, noChildren) = "" .
+    eq toStringChildrenInv(M, [ ID, PID, T, CTR, RL, SB, ACSB, noMatch, N ]) = 
+        "\nChild " + string(ID, 10) + " (Parent " + string(PID, 10) + ")" + 
+        "\nTerm:\n  " + toString(M, T) +
+        "\nRule: " + string(RL) + 
+        "\nUnifier:\n" + toString(M, SB) +
+        "\nMatching: no matching found" +
+        "\nConstraint:\n  " + toString(M, CTR) .
+        eq toStringChildrenInv(M, [ ID, PID, T, CTR, RL, SB, ACSB, NML, N ]) = 
+        "\nChild " + string(ID, 10) + " (Parent " + string(PID, 10) + ")" + 
+        "\nTerm:\n  " + toString(M, T) +
+        "\nRule: " + string(RL) + 
+        "\nUnifier:\n" + toString(M, SB) +
+        toStringMatcherListInv(M, NML, 1) .
+    eq toStringChildrenInv(M, noChildren) = "" .
+    eq toStringChildrenInv(M, ([ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN)) = toStringChildrenInv(M, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ]) + "\n" + toStringChildrenInv(M, CHILDREN) .
+
+    op toStringChildrenSub : Module ChildNodeList -> String .
+    eq toStringChildrenSub(M, noChildren) = "" .
+    eq toStringChildrenSub(M, [ ID, T, CTR, ACSB, noMatch, N ]) = 
+        "\nTerm " + string(ID, 10) + ":\n  " + toString(M, T) +
+        "\nMatching: no matching found" +
+        "\nConstraint " + string(ID, 10) + ":\n  " + toString(M, CTR) .
+    eq toStringChildrenSub(M, [ ID, T, CTR, ACSB, NML, N ]) =
+        "\nTerm " + string(ID, 10) + ":\n  " + toString(M, T) +
+        "\nConstraint " + string(ID, 10) + ":\n  " + toString(M, CTR) +
+        toStringMatcherListSub(M, NML, 1) .
+    eq toStringChildrenSub(M, noChildren) = "" .
+    eq toStringChildrenSub(M, ([ ID, T, CTR, ACSB, ML, N ], CHILDREN)) = toStringChildrenSub(M, [ ID, T, CTR, ACSB, ML, N ]) + "\n" + toStringChildrenSub(M, CHILDREN) .
+    
+    op toStringChildrenInt : Module ChildNodeList -> String .
+    eq toStringChildrenInt(M, noChildren) = "" .
+    eq toStringChildrenInt(M, ([ ID, T, T', T'', CTR, LSB, RSB ], CHILDREN)) = 
+        "\nIntersection Term:\n  " + toString(M, T'') + 
+        "\nLeft Term:\n  " + toString(M, T) + 
+        "\nLeft Substitution:\n" + toString(M, LSB) +
+        "\nRight Term:\n  " + toString(M, T') + 
+        "\nRight Substitution:\n" + toString(M, RSB) +
+        "\nConstraint:\n  " + toString(M, CTR) + 
+        "\n" + toStringChildrenInt(M, CHILDREN) .
+    
+    op toString : Module Qid -> String .
+    eq toString(M, Q) = string(Q) .
+
+    op toStringLemmas : Module TermSet -> String .
+    eq toStringLemmas(M, mt) = "" .
+    eq toStringLemmas(M, T) = "  " + toString(M, T) .
+    eq toStringLemmas(M, (T ;; LEMMAS)) = "  " + toString(M, T) + "\n" + toStringLemmas(M, LEMMAS) .
+
+    op toStringInv : Module DMCOutput TermSet String -> String .
+    eq toStringInv(M, noParents || CHILDREN, LEMMAS?, POS) = errorMsg(0) .
+    eq toStringInv(M, PARENTS || ([ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN), LEMMAS?, POS) = "\033[1;31m  Invariant could not be proved.\033[0m\n" + toStringParents(M, PARENTS) + "\n" + toStringChildrenInv(M, ([ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN)) .
+    eq toStringInv(M, PARENTS || noChildren, mt, POS) = 
+        if (POS == "")
+        then "\033[1;32m  Invariant satisfied.\033[0m"
+        else "\033[1;32m  Invariant satisfied with the following proof obligations:\033[0m\n\n" + POS
+        fi .
+    eq toStringInv(M, PARENTS || noChildren, LEMMAS, POS) = "\033[1;32m  Invariant satisfied with the following proof obligations:\033[0m\n" + toStringLemmas(M, LEMMAS) + (if (POS == "") then "" else "\n" + POS fi) .
+    
+    op toStringSub : Module DMCOutput TermSet -> String .
+    eq toStringSub(M, noParents || CHILDREN, LEMMAS?) = errorMsg(0) .
+    eq toStringSub(M, PARENTS || noChildren, mt) = "\033[1;32m  Subsumption satisfied.\033[0m\n" .
+    eq toStringSub(M, PARENTS || noChildren, LEMMAS) = "\033[1;32m  Subsumption satisfied with the following proof obligations:\033[0m\n" + toStringLemmas(M, LEMMAS) .
+    eq toStringSub(M, PARENTS || ([ ID, T, CTR, ACSB, ML, N ], CHILDREN), LEMMAS?) = "\033[1;31m  Constrained terms on the left that could not be subsumed:\033[0m\n" + toStringChildrenSub(M, ([ ID, T, CTR, ACSB, ML, N ], CHILDREN)) .
+
+    op toStringInt : Module DMCOutput TermSet -> String .
+    eq toStringInt(M, noParents || CHILDREN, LEMMAS?) = errorMsg(0) .
+    eq toStringInt(M, PARENTS || noChildren, LEMMAS?) = "\033[1;32m  No intersection.\033[0m\n" .
+    eq toStringInt(M, PARENTS || ([ ID, T, T', T'', CTR, LSB, RSB ], CHILDREN1), LEMMAS?) = "\033[1;31m  Intersection of constrained terms:\033[0m\n" + toStringChildrenInt(M, ([ ID, T, T', T'', CTR, LSB, RSB ], CHILDREN1)) .
+endm
+
+mod DM-CHECK-SYNTAX is
+    pr QID-LIST .
+
+    sorts Token Bubble Command .
+
+    op token : Qid -> Token [ special (id-hook Bubble (1 1) op-hook qidSymbol (<Qids> : ~> Qid)) ] .
+    op bubble : QidList -> Bubble [ special (id-hook Bubble (1 -1 `( `)) op-hook qidListSymbol (__ : QidList QidList ~> QidList) op-hook qidSymbol (<Qids> : ~> Qid) id-hook Exclude (.)) ] .
+
+    op q : -> Command .
+    op quit : -> Command .
+    op show`module`. : -> Command .
+    op show`lemmas`. : -> Command .
+    op show`last`. : -> Command .
+    op show`obligations`. : -> Command .
+    
+    op set`module_. : Token -> Command .
+    op add`lemma_. : Bubble -> Command .
+
+    op check`invariant_. : Bubble -> Command .
+    op check_subsumed`by_. : Bubble Bubble -> Command .
+    op intersect_with_. : Bubble Bubble -> Command .
+    op empty_. : Token -> Command .
+    op lemma_. : Token -> Command .
+    op lemma_match_. : Token Token -> Command .
+    op contained_. : Token -> Command .
+    op recheck`. : -> Command .
+    op case`to_on_with_. : Token Token Bubble -> Command .
+endm
+
+mod DM-CHECK-UI is
+    pr DM-CHECK-STRING .
+    pr DM-CHECK .
+    pr STD-STREAM .
+    pr FILE .
+    pr NuITP-PARSE .
+    
+    sorts StringQid .
+    
+    op _|_ : String Qid -> StringQid [ ctor ] .
+    
+    op oid : -> Oid .
+    op cid : -> Cid .
+
+    op module:_ : [Module] -> Attribute [ ctor prec 20 gather (&) ] .
+    op pos:_ : String -> Attribute [ ctor prec 20 gather (&) ] .
+    op lemmasui:_ : TermSet -> Attribute [ ctor prec 20 gather (&) ] .
+    op lastRes:_ : DMCOutput -> Attribute [ ctor prec 20 gather (&) ] .
+    op lastCmd:_ : StringQid -> Attribute [ ctor prec 20 gather (&) ] .
+    op tmpCmd:_ : String -> Attribute [ ctor prec 20 gather (&) ] .
+
+    op parse : Term -> Msg [ ctor ] .
+    op checkInvariant : Module TermList -> Msg [ ctor ] .
+    op checkSubsumed : Module TermList TermList -> Msg [ ctor ] .
+    op checkIntersect : Module TermList TermList -> Msg [ ctor ] .
+    op noModule : -> [Module] [ ctor ] .
+    
+    var CID : Cid .
+    var OID : Oid .
+    var ATS : AttributeSet .
+    
+    var M : Module .
+    vars Q Q' TYPE RL : Qid .
+    var H : Header .
+    var IL : ImportList .
+    var SS : SortSet .
+    var SSDS : SubsortDeclSet .
+    var OPDS : OpDeclSet .
+    var MAS : MembAxSet .
+    var EQS : EquationSet .
+    var RLS : RuleSet .
+    var STDS : StratDeclSet .
+    var STDFS : StratDefSet .
+
+    vars N N' ID PID ID1 ID2 PID1 PID2 MID : Nat .
+    var NZ : NzNat .
+    var STR : String .
+    var M? : [Module] .
+    var T? : [Term] .
+    vars TL TL1 TL2 : TermList .
+    vars TS TS' : TermSet .
+    vars NTL NTL1 NTL2 TERMS INVARIANTS ARG ARG1 ARG2 ARG3 ARG4 : NeTermList .
+    vars TERM TMODE TCONSTRAINT TOPTIONS TBOUNDS GAMMA DELTA LEMMA CTR INVARIANT INVARIANT1 INVARIANT2 IMPLICATION : Term .
+    var PROBLEM? : TermList .
+    vars NQL NQL1 NQL2 MODE OPTIONS BOUNDS MODULE CONSTRAINT LEMMAQID : NeQidList .
+    vars MODE? OPTIONS? BOUNDS? MODULE? CONSTRAINT? QL QL1 QL2 : QidList .
+    vars T T' T1 T2 : Term .
+    var LEMMAS : TermSet .
+    vars NAR NAR1 NAR2 : NarrowingApplyResult .
+    vars ML ML1 ML2 : MatcherList .
+    vars CMD TMP POS : String .
+    vars MATCH SB SB1 SB2 ACSB LSB RSB : Substitution .
+    var PROOF : ProofState .
+    var CO : Context .
+    var TY : Type .
+    var V : Variable .
+    var NTS : NeTermSet .
+    var PARSED-VAR : [Term] .
+    var PARSED-GENSET : [TermSet] .
+    var PARENTS : ParentNodeList .
+    vars CHILDREN CHILDREN1 CHILDREN2 CHILDREN3 : ChildNodeList .
+    var OUTPUT : DMCOutput .
+    
+    op addImport : Module Qid -> Module .
+    eq addImport(fmod H is IL sorts SS . SSDS OPDS MAS EQS endfm, Q') = fmod H is IL (protecting Q' .) sorts SS . SSDS OPDS MAS EQS endfm .
+    eq addImport(mod H is IL sorts SS . SSDS OPDS MAS EQS RLS endm, Q') = mod H is IL (protecting Q' .) sorts SS . SSDS OPDS MAS EQS RLS endm .
+    eq addImport(smod H is IL sorts SS . SSDS OPDS MAS EQS RLS STDS STDFS endsm, Q') = smod H is IL (protecting Q' .) sorts SS . SSDS OPDS MAS EQS RLS STDS STDFS endsm .
+    eq addImport(fth Q is IL sorts SS . SSDS OPDS MAS EQS endfth, Q') = fth Q is IL (protecting Q' .) sorts SS . SSDS OPDS MAS EQS endfth .
+    eq addImport(th Q is IL sorts SS . SSDS OPDS MAS EQS RLS endth, Q') = th Q is IL (protecting Q' .) sorts SS . SSDS OPDS MAS EQS RLS endth .
+    eq addImport(sth H is IL sorts SS . SSDS OPDS MAS EQS RLS STDS STDFS endsth, Q') = sth H is IL (protecting Q' .) sorts SS . SSDS OPDS MAS EQS RLS STDS STDFS endsth .
+    eq addImport(M, Q) = M [ owise ] .
+
+    op init : -> Configuration .
+    eq init = <> < oid : cid | module: noModule, lemmasui: mt, lastRes: noSolution, lastCmd: ("" | 'noType), tmpCmd: "", pos: "" > write(stdout, oid, "\n") .
+
+    --- parse command
+    op parseCommand : [Module] Oid String -> Msg .
+    ceq parseCommand(noModule, OID, STR) = write(stdout, OID, errorMsg(1)) 
+        if 'check_subsumed`by_.['bubble[ARG1],'bubble[ARG2]] := getTerm(metaParse(upModule('DM-CHECK-SYNTAX, false), none, tokenize(STR), 'Command)) .
+    ceq parseCommand(noModule, OID, STR) = write(stdout, OID, errorMsg(1)) 
+        if 'check`invariant_.['bubble[ARG1]] := getTerm(metaParse(upModule('DM-CHECK-SYNTAX, false), none, tokenize(STR), 'Command)) .
+    ceq parseCommand(noModule, OID, STR) = write(stdout, OID, errorMsg(1)) 
+        if 'intersect_with_.['bubble[ARG1]] := getTerm(metaParse(upModule('DM-CHECK-SYNTAX, false), none, tokenize(STR), 'Command)) .
+    ceq parseCommand(noModule, OID, STR) = write(stdout, OID, errorMsg(1)) 
+        if 'check_subsumed`by_.['bubble[ARG1],'bubble[ARG2]] := getTerm(metaParse(upModule('DM-CHECK-SYNTAX, false), none, tokenize(STR), 'Command)) .
+    ceq parseCommand(M, OID, STR) = parse('check_subsumed`by_.['bubble[ARG1],'bubble[ARG2]])
+        if 'check_subsumed`by_.['bubble[ARG1],'bubble[ARG2]] := getTerm(metaParse(upModule('DM-CHECK-SYNTAX, false), none, tokenize(STR), 'Command)) .
+    eq parseCommand(M?, OID, STR) = parse(getTerm(metaParse(upModule('DM-CHECK-SYNTAX, false), none, tokenize(STR), 'Command))) [ owise ] .
+    
+    --- quit
+    eq < OID : CID | ATS > parse('q.Command) = (none).Configuration write(stdout, OID, "\n\033[1;37m  Bye.\033[0m\n\n") .
+    eq < OID : CID | ATS > parse('quit.Command) = (none).Configuration write(stdout, OID, "\n\033[1;37m  Bye.\033[0m\n\n") .
+    eq < OID : CID | ATS > parse(T?) = < OID : CID | ATS > write(stdout, OID, errorMsg(3)) [ owise ] .
+
+    eq < OID : CID | ATS > wrote(OID, stdout) = < OID : CID | ATS > getLine(stdin, OID, "DM-Check> ") [ owise ] .
+    eq < OID : CID | ATS, module: M?, tmpCmd: TMP > gotLine(OID, stdin, STR) = < OID : CID | ATS, module: M?, tmpCmd: STR > parseCommand(M?, OID, STR) .
+    
+    eq getTerm(ambiguity({'true.Bool,'Bool}, {'true.NuITP-Bool,'NuITP-Bool})) = 'true.Bool .
+    eq getTerm(ambiguity({T1, 'Disjunction}, {T2, 'Disjunction})) = T1 .
+
+    --- set module MODNAME .
+    eq < OID : CID | ATS, module: M?, tmpCmd: TMP, lastCmd: (CMD | TYPE), lastRes: OUTPUT, pos: POS > parse('set`module_.['token[T]]) =
+        if upModule(downTerm(T, 'noModule.Qid), true) :: Module
+        then
+            < OID : CID | ATS, module: addImport(upModule(downTerm(T, 'noModule.Qid), true), 'NuITP-CLAUSE), tmpCmd: "", lastCmd: ("" | 'noType), lastRes: (noParents || noChildren), pos: "" >
+            write(stdout, OID, "\n\033[1;32m  Module " + string(downTerm(T, 'noModule.Qid)) + " is now active.\033[0m\n\n")
+        else 
+            < OID : CID | ATS, module: M? > write(stdout, oid, errorMsg(1))
+        fi .
+
+    --- recheck .
+    eq < OID : CID | ATS, module: noModule > parse('recheck`..Command) = < OID : CID | ATS, module: noModule > write(stdout, oid, errorMsg(1)) .
+    eq < OID : CID | ATS, module: M, lastCmd: (CMD | 'invariant), tmpCmd: TMP > parse('recheck`..Command) = < OID : CID | ATS, module: M, lastCmd: (CMD | 'invariant), tmpCmd: CMD > parseCommand(M, OID, CMD) .
+    eq < OID : CID | ATS, module: M, lastCmd: (CMD | 'subsumption), tmpCmd: TMP > parse('recheck`..Command) = < OID : CID | ATS, module: M, lastCmd: (CMD | 'subsumption), tmpCmd: CMD > parseCommand(M, OID, CMD) .
+    eq < OID : CID | ATS, module: M, lastCmd: (CMD | 'intersect), tmpCmd: TMP > parse('recheck`..Command) = < OID : CID | ATS, module: M, lastCmd: (CMD | 'intersect), tmpCmd: CMD > parseCommand(M, OID, CMD) .
+    eq < OID : CID | ATS, module: M, lastCmd: ("" | 'noType) > parse('recheck`..Command) = < OID : CID | ATS, module: M, lastCmd: ("" | 'noType) > write(stdout, oid, errorMsg(5)) .
+    
+    --- show module .
+    eq < OID : CID | ATS, module: M > parse('show`module`..Command) = < OID : CID | ATS, module: M > write(stdout, OID, "\n\033[1;32m  Module " + string(getName(M)) + " is active.\033[0m\n\n") .
+    eq < OID : CID | ATS, module: noModule > parse('show`module`..Command) = < OID : CID | ATS, module: noModule > write(stdout, oid, errorMsg(1)) .
+
+    --- show lemmas .
+    eq < OID : CID | ATS, module: M, lemmasui: LEMMAS > parse('show`lemmas`..Command) = < OID : CID | ATS, module: M, lemmasui: LEMMAS > write(stdout, OID, "\n\033[1;32m  Current lemmas:\n\033[0m\n" + if (LEMMAS == mt) then "  No lemmas saved." else toStringLemmas(M, LEMMAS) fi + "\n\n") .
+    eq < OID : CID | ATS, module: noModule > parse('show`lemmas`..Command) = < OID : CID | ATS, module: noModule > write(stdout, oid, errorMsg(1)) .
+
+    --- show proof obligations .
+    eq < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS > parse('show`obligations`..Command) = < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS > write(stdout, OID, "\n\033[1;32m  Current proof obligations:\n\033[0m\n" + 
+        if ((LEMMAS == mt) and-then (POS == "")) 
+        then "  No proof obligations pending.\n\n" 
+        else toStringLemmas(M, LEMMAS) + "\n" + POS + "\n"
+        fi) .
+    eq < OID : CID | ATS, module: noModule > parse('show`obligations`..Command) = < OID : CID | ATS, module: noModule > write(stdout, oid, errorMsg(1)) .
+
+    --- show last .
+    eq < OID : CID | ATS, module: M?, lastRes: OUTPUT, lastCmd: (CMD | 'noType) > parse('show`last`..Command) = < OID : CID | ATS, module: M?, lastRes: OUTPUT, lastCmd: (CMD | 'noType) > write(stdout, oid, errorMsg(5)) .
+    eq < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | 'invariant), pos: POS > parse('show`last`..Command) = < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | 'invariant), pos: POS > write(stdout, OID, "\n  " + toStringInv(M, OUTPUT, LEMMAS, POS) + "\n\n") .
+    eq < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | 'subsumption) > parse('show`last`..Command) = < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | 'subsumption) > write(stdout, OID, "\n  " + toStringSub(M, OUTPUT, LEMMAS) + "\n\n") .
+    eq < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | 'intersect) > parse('show`last`..Command) = < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | 'intersect) > write(stdout, OID, "\n  " + toStringInt(M, OUTPUT, LEMMAS) + "\n\n") .
+
+    op notFound : DMCOutput Nat -> Bool .
+    eq notFound((PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2)), ID) = false .
+    eq notFound(OUTPUT, ID) = true [ owise ] .
+
+    op applySub : NarrowingApplyResult Substitution -> NarrowingApplyResult .
+    eq applySub({ T1, TY, CO, Q, SB1, SB2, Q' }, V <- T) = { applySub(T1, V <- T), TY, CO, Q, applySub(SB1, V <- T), applySub(SB2, V <- T), Q' } .
+
+    op applySub : MatcherList Substitution -> MatcherList .
+    eq applySub((MID, MATCH, IMPLICATION, PROOF), SB) = (MID, applySub(MATCH, SB), applySub(IMPLICATION, SB), PROOF) .
+    eq applySub((MID, MATCH, IMPLICATION, PROOF) ; ML, SB) = (MID, applySub(MATCH, SB), applySub(IMPLICATION, SB), PROOF) ; applySub(ML, SB) .
+    eq applySub(ML, SB) = ML [ owise ] .
+    
+    op generateChildren : ChildNode Nat Variable TermSet -> ChildNodeList .
+    eq generateChildren([ ID, PID, T', CTR, RL, SB, ACSB, ML, N' ], N, V, mt) = noChildren .
+    eq generateChildren([ ID, PID, T', CTR, RL, SB, ACSB, ML, N' ], N, V, T) = [ N, PID, applySub(T', V <- T), applySub(CTR, V <- T), RL, applySub(SB, V <- T), applySub(ACSB, V <- T), applySub(ML, V <- T), N' ] .
+    eq generateChildren([ ID, PID, T', CTR, RL, SB, ACSB, ML, N' ], N, V, T ;; NTS) = [ N, PID, applySub(T', V <- T), applySub(CTR, V <- T), RL, applySub(SB, V <- T), applySub(ACSB, V <- T), applySub(ML, V <- T), N' ] , generateChildren([ ID, PID, T', CTR, RL, SB, ACSB, ML, N' ], N + 1, V, NTS) .
+
+    op getParents : ParentNodeList -> TermList .
+    eq getParents(noParents) = empty .
+    eq getParents(([ ID, T, CTR, ACSB, 0 ], PARENTS)) = ('_|_[T,CTR]) , getParents(PARENTS) .
+
+    op getNextIndex : ChildNodeList Nat -> Nat .
+    eq getNextIndex((CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2), N') = 
+        if (ID >= N')
+        then getNextIndex((CHILDREN1, CHILDREN2), ID) 
+        else getNextIndex((CHILDREN1, CHILDREN2), N') 
+        fi .
+    eq getNextIndex(CHILDREN, N) = s(N) [ owise ] .
+
+    op variableClash? : TermSet ChildNode -> Bool .
+    eq variableClash?(TS, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ]) = variableClash?'(getVars(TS), getVars(T)) .
+
+    op variableClash?' : TermSet TermSet -> Bool .
+    eq variableClash?'(V ;; TS, V ;; TS') = true .
+    eq variableClash?'(TS, TS') = false [ owise ] .
+
+    --- case to CHILD on VARIABLE with GENERATOR-SET .
+    eq < OID : CID | ATS, module: noModule > parse('case`to_on_with_.['token[ARG1],'token[ARG2],'bubble[ARG3]]) = < OID : CID | ATS, module: noModule > write(stdout, oid, errorMsg(1)) .
+    eq < OID : CID | ATS, module: M, lastCmd: (CMD | 'subsumption), tmpCmd: TMP > parse('case`to_on_with_.['token[ARG1],'token[ARG2],'bubble[ARG3]]) = < OID : CID | ATS, module: noModule > write(stdout, oid, errorMsg(9)) .
+    eq < OID : CID | ATS, module: M, lastCmd: (CMD | 'intersect), tmpCmd: TMP > parse('case`to_on_with_.['token[ARG1],'token[ARG2],'bubble[ARG3]]) = < OID : CID | ATS, module: noModule > write(stdout, oid, errorMsg(9)) .
+    eq < OID : CID | ATS, module: M, lastCmd: ("" | 'noType) > parse('case`to_on_with_.['token[ARG1],'token[ARG2],'bubble[ARG3]]) = < OID : CID | ATS, module: M, lastCmd: ("" | 'noType) > write(stdout, oid, errorMsg(5)) .
+    ceq < OID : CID | ATS, module: M, lastCmd: (CMD | 'invariant), lastRes: OUTPUT > parse('case`to_on_with_.['token[ARG1],'token[ARG2],'bubble[ARG3]]) = < OID : CID | ATS, module: M, lastCmd: (CMD | 'invariant), lastRes: OUTPUT > write(stdout, oid, errorMsg(6))
+        if ID := rat(string(downTerm(ARG1, 'nil.QidList)),10)
+        /\ notFound(OUTPUT, ID) .
+    ceq < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'invariant), lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2)) > parse('case`to_on_with_.['token[ARG1],'token[ARG2],'bubble[ARG3]]) = 
+        if (PARSED-VAR :: Variable) and-then (PARSED-VAR in getVars(T))
+        then 
+            if (PARSED-GENSET :: TermSet) and-then (PARSED-GENSET =/= mt)
+            then 
+                if (variableClash?(PARSED-GENSET, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ]))
+                then < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'invariant), lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2)) > write(stdout, oid, errorMsg(12))
+                else
+                    < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'invariant), lastRes: (PARENTS || (CHILDREN1, case(M, PARENTS, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], PARSED-VAR, PARSED-GENSET, getNextIndex((CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2), 0), none, LEMMAS), CHILDREN2)) > 
+                    write(stdout, OID, "\n  " + toStringInv(M, (PARENTS || (CHILDREN1, case(M, PARENTS, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], PARSED-VAR, PARSED-GENSET, getNextIndex((CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2), 0), none, LEMMAS), CHILDREN2)), (LEMMAS), POS) + "\n\n")
+                fi
+            else < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'invariant), lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2)) > write(stdout, oid, errorMsg(11))
+            fi
+        else < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'invariant), lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2)) > write(stdout, oid, errorMsg(10))
+        fi
+        if ID == rat(string(downTerm(ARG1, 'nil.QidList)),10)
+        /\ PARSED-VAR := parseVariables(M, downTerm(ARG2, 'nil.QidList), getVars(T))
+        /\ PARSED-GENSET := parseGenSet(M, getType(PARSED-VAR), downTerm(ARG3,'nil.QidList)) .
+    
+    --- empty CHILD .
+    ceq < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2)), lastCmd: (CMD | 'invariant), pos: POS > parse('empty_.['token[ARG1]]) = 
+        < OID : CID | ATS, module: M, lemmasui: (LEMMAS ;; ('_->_[CTR,'false.NuITP-Bool])), lastRes: (PARENTS || (CHILDREN1,CHILDREN2)), lastCmd: (CMD | 'invariant), pos: POS > write(stdout, OID, "\n  " + toStringInv(M, (PARENTS || (CHILDREN1,CHILDREN2)), (LEMMAS ;; ('_->_[CTR,'false.NuITP-Bool])), POS) + "\n\n")
+        if ID == rat(string(downTerm(ARG1, 'nil.QidList)),10) .
+    ceq < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | 'invariant) > parse('empty_.['token[ARG1]]) = 
+        < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | 'invariant) > write(stdout, oid, errorMsg(6))
+        if ID := rat(string(downTerm(ARG1, 'nil.QidList)),10)
+        /\ notFound(OUTPUT, ID) .
+
+    op getLemma : MatcherList Nat -> TermSet .
+    eq getLemma((MID, MATCH, IMPLICATION, PROOF) ; ML, s(0)) = IMPLICATION .
+    eq getLemma((MID, MATCH, IMPLICATION, PROOF) ; ML, s(NZ)) = getLemma(ML, NZ) .
+    eq getLemma(ML, N) = mt [ owise ] .
+
+    --- lemma CHILD .
+    ceq < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, noMatch, N ], CHILDREN2)), lastCmd: (CMD | 'invariant), pos: POS > parse('lemma_.['token[ARG1]]) = < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, noMatch, N ], CHILDREN2)), lastCmd: (CMD | 'invariant), pos: POS > write(stdout, oid, errorMsg(7))
+        if ID == rat(string(downTerm(ARG1, 'nil.QidList)), 10) .
+    ceq < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, (MID, MATCH, IMPLICATION, PROOF) ; ML, N ], CHILDREN2)), lastCmd: (CMD | 'invariant), pos: POS > parse('lemma_.['token[ARG1]]) = 
+        < OID : CID | ATS, module: M, lemmasui: (LEMMAS ;; IMPLICATION), lastRes: (PARENTS || (CHILDREN1,CHILDREN2)), lastCmd: (CMD | 'invariant), pos: POS > write(stdout, OID, "\n  " + toStringInv(M, (PARENTS || (CHILDREN1,CHILDREN2)), (LEMMAS ;; IMPLICATION), POS) + "\n\n")
+        if ID == rat(string(downTerm(ARG1, 'nil.QidList)), 10) .
+    ceq < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | 'invariant) > parse('lemma_.['token[ARG1]]) = 
+        < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | 'invariant) > write(stdout, oid, errorMsg(6))
+        if ID := rat(string(downTerm(ARG1, 'nil.QidList)), 10)
+        /\ notFound(OUTPUT, ID) .
+
+    --- lemma CHILD match MATCHER .
+    ceq < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, noMatch, N ], CHILDREN2)), lastCmd: (CMD | 'invariant), pos: POS > parse('lemma_match_.['token[ARG1],'token[ARG2]]) = < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, noMatch, N ], CHILDREN2)), lastCmd: (CMD | 'invariant), pos: POS > write(stdout, oid, errorMsg(7))
+        if ID == rat(string(downTerm(ARG1, 'nil.QidList)),10) .
+    ceq < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, (MID, MATCH, IMPLICATION, PROOF) ; ML, N ], CHILDREN2)), lastCmd: (CMD | 'invariant), pos: POS > parse('lemma_match_.['token[ARG1],'token[ARG2]]) = 
+        if (getLemma((MID, MATCH, IMPLICATION, PROOF) ; ML, NZ) == mt)
+        then < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, (MID, MATCH, IMPLICATION, PROOF) ; ML, N ], CHILDREN2)), lastCmd: (CMD | 'invariant), pos: POS > write(stdout, oid, errorMsg(8))
+        else < OID : CID | ATS, module: M, lemmasui: (LEMMAS ;; getLemma((MID, MATCH, IMPLICATION, PROOF) ; ML, NZ)), lastRes: (PARENTS || (CHILDREN1,CHILDREN2)), lastCmd: (CMD | 'invariant), pos: POS > write(stdout, OID, "\n  " + toStringInv(M, (PARENTS || (CHILDREN1,CHILDREN2)), (LEMMAS ;; getLemma((MID, MATCH, IMPLICATION, PROOF) ; ML, NZ)), POS) + "\n\n")
+        fi
+        if ID == rat(string(downTerm(ARG1, 'nil.QidList)), 10)
+        /\ NZ := rat(string(downTerm(ARG2, 'nil.QidList)), 10) .
+    ceq < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | 'invariant) > parse('lemma_match_.['token[ARG1],'token[ARG2]]) = 
+        < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | 'invariant) > write(stdout, oid, errorMsg(6))
+        if ID := rat(string(downTerm(ARG1, 'nil.QidList)), 10)
+        /\ notFound(OUTPUT, ID) .
+
+    --- Build PO
+    op buildPO : Module Term Term ParentNodeList -> String .
+    eq buildPO(M, T1, T2, noParents) = "" .
+    eq buildPO(M, T1, T2, PARENTS) = "  check (" + toString(M, T1) + " | " + toString(M, T2) + ") contained in " + buildPO'(M, PARENTS) + " .\n" [ owise ] .
+
+    op buildPO' : Module ParentNodeList -> String .
+    eq buildPO'(M, noParents) = "" .
+    eq buildPO'(M, [ ID, T, CTR, ACSB, 0 ]) = "(" + toString(M, T) + " | " + toString(M, CTR) + ")" .
+    eq buildPO'(M, ([ ID, T, CTR, ACSB, 0 ], PARENTS)) = "(" + toString(M, T) + " | " + toString(M, CTR) + ") \\/ " + buildPO'(M, PARENTS) .
+
+    --- contained CHILD .
+    ceq < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2)), lastCmd: (CMD | 'invariant), pos: POS > parse('contained_.['token[ARG1]]) = 
+        < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: (PARENTS || (CHILDREN1, CHILDREN2)), lastCmd: (CMD | 'invariant), pos: (POS + (if POS == "" then "" else "\n" fi) + buildPO(M, T, CTR, PARENTS)) > write(stdout, OID, "\n  " + toStringInv(M, (PARENTS || (CHILDREN1, CHILDREN2)), LEMMAS, (POS + (if POS == "" then "" else "\n" fi) + buildPO(M, T, CTR, PARENTS))) + "\n\n")
+        if ID == rat(string(downTerm(ARG1, 'nil.QidList)),10) .
+    ceq < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | 'invariant) > parse('contained_.['token[ARG1]]) = 
+        < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | 'invariant) > write(stdout, oid, errorMsg(6))
+        if ID := rat(string(downTerm(ARG1, 'nil.QidList)),10)
+        /\ notFound(OUTPUT, ID) .
+
+    --- check INVARIANT .
+    eq < OID : CID | ATS, module: M > parse('check`invariant_.['bubble[ARG]]) = 
+        if (parseInvariant(M, downTerm(ARG, 'nil.QidList)) :: TermList)
+        then < OID : CID | ATS, module: M > checkInvariant(M, parseInvariant(M, downTerm(ARG, 'nil.QidList)))
+        else < OID : CID | ATS, module: M > write(stdout, oid, errorMsg(2))
+        fi .
+
+    eq [do-check-inv] : < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | Q), tmpCmd: TMP, pos: POS > checkInvariant(M, ARG) = 
+        < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: checkInvariants(M, ARG, none, LEMMAS, 1), lastCmd: (TMP | 'invariant), tmpCmd: TMP, pos: POS >
+        if toStringInv(M, checkInvariants(M, ARG, none, LEMMAS, 1), LEMMAS, POS) :: String
+        then write(stdout, OID, "\n  " + toStringInv(M, checkInvariants(M, ARG, none, LEMMAS, 1), LEMMAS, POS) + "\n\n")
+        else write(stdout, OID, errorMsg(0))
+        fi .
+
+    --- check INVARIANT1 subsumed by INVARIANT2 .
+    eq < OID : CID | ATS, module: M > parse('check_subsumed`by_.['bubble[ARG1],'bubble[ARG2]]) = 
+        if (parseInvariant(M, downTerm(ARG1, 'nil.QidList)) :: TermList) and-then (parseInvariant(M, downTerm(ARG2, 'nil.QidList)) :: TermList)
+        then < OID : CID | ATS, module: M > checkSubsumed(M, parseInvariant(M, downTerm(ARG1, 'nil.QidList)), parseInvariant(M, downTerm(ARG2, 'nil.QidList)))
+        else < OID : CID | ATS, module: M > write(stdout, oid, errorMsg(2))
+        fi .
+    
+    eq [do-check-sub] : < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | Q), tmpCmd: TMP > checkSubsumed(M, ARG1, ARG2) = 
+        < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: checkSubsumed(M, ARG1, ARG2, none, LEMMAS), lastCmd: (TMP | 'subsumption), tmpCmd: TMP >
+        if toStringSub(M, checkSubsumed(M, ARG1, ARG2, none, LEMMAS), LEMMAS) :: String
+        then write(stdout, OID, "\n  " + toStringSub(M, checkSubsumed(M, ARG1, ARG2, none, LEMMAS), LEMMAS) + "\n\n")
+        else write(stdout, OID, errorMsg(0))
+        fi .
+
+    --- intersect INVARIANT1 with INVARIANT2 .
+    eq < OID : CID | ATS, module: M > parse('intersect_with_.['bubble[ARG1],'bubble[ARG2]]) = 
+        if (parseInvariant(M, downTerm(ARG1, 'nil.QidList)) :: TermList) and-then (parseInvariant(M, downTerm(ARG2, 'nil.QidList)) :: TermList)
+        then < OID : CID | ATS, module: M > checkIntersect(M, parseInvariant(M, downTerm(ARG1, 'nil.QidList)), parseInvariant(M, downTerm(ARG2, 'nil.QidList)))
+        else < OID : CID | ATS, module: M > write(stdout, oid, errorMsg(2))
+        fi .
+
+    eq [do-check-int] : < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | Q), tmpCmd: TMP > checkIntersect(M, ARG1, ARG2) = 
+        < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: checkIntersection(M, ARG1, ARG2, none, LEMMAS), lastCmd: (TMP | 'intersect), tmpCmd: TMP >
+        if toStringInt(M, checkIntersection(M, ARG1, ARG2, none, LEMMAS), LEMMAS) :: String
+        then write(stdout, OID, "\n  " + toStringInt(M, checkIntersection(M, ARG1, ARG2, none, LEMMAS), LEMMAS) + "\n\n")
+        else write(stdout, OID, errorMsg(0))
+        fi .
+
+    --- Parse Invariant
+    op parseInvariant : Module QidList -> [TermList] .
+    ceq parseInvariant(M, QL) = parseInvariant'(M, NTL)
+        if '_\/_[NTL] := getTerm(metaNormalize(upModule('DM-CHECK-DISJUNCTION, false), getTerm(metaParse(upModule('DM-CHECK-DISJUNCTION, false), none, QL, anyType)))) .
+    eq parseInvariant(M, QL) = parseInvariant'(M, getTerm(metaNormalize(upModule('DM-CHECK-DISJUNCTION, false), getTerm(metaParse(upModule('DM-CHECK-DISJUNCTION, false), none, QL, anyType))))) [ owise ] .
+
+    op parseInvariant' : Module TermList -> [TermList] .
+    eq parseInvariant'(M, empty) = empty .
+    eq parseInvariant'(M, ('_|_['bubble[T1],'true.Bool], TL)) = '_|_[getTerm(metaParse(M, downTerm(T1, (nil).QidList), anyType)),'true.NuITP-Bool], parseInvariant'(M, TL) .
+    eq parseInvariant'(M, ('_|_['bubble[T],'_=_['bubble[T1],'bubble[T2]]], TL)) = '_|_[getTerm(metaParse(M, downTerm(T, (nil).QidList), anyType)),'_=_[getTerm(metaParse(M, downTerm(T1, (nil).QidList), anyType)),getTerm(metaParse(M, downTerm(T2, (nil).QidList), anyType))]], parseInvariant'(M, TL) .
+    eq parseInvariant'(M, ('_|_['bubble[T],'_/\_[NTL]], TL)) = '_|_[getTerm(metaParse(M, downTerm(T, (nil).QidList), anyType)), '_/\_[parseInvariant''(M, NTL)]], parseInvariant'(M, TL) .
+    eq parseInvariant'(M, ('_|_['bubble[T],'_\/_[NTL]], TL)) = '_|_[getTerm(metaParse(M, downTerm(T, (nil).QidList), anyType)), '_\/_[parseInvariant''(M, NTL)]], parseInvariant'(M, TL) .
+    
+    op parseInvariant'' : Module TermList -> [TermList] .
+    eq parseInvariant''(M, empty) = empty .
+    eq parseInvariant''(M, '_=_['bubble[T1],'bubble[T2]]) = ('_=_[getTerm(metaParse(M, downTerm(T1, (nil).QidList), anyType)),getTerm(metaParse(M, downTerm(T2, (nil).QidList), anyType))]) .
+    eq parseInvariant''(M, ('_=_['bubble[T1],'bubble[T2]], NTL)) = (('_=_[getTerm(metaParse(M, downTerm(T1, (nil).QidList), anyType)),getTerm(metaParse(M, downTerm(T2, (nil).QidList), anyType))]),parseInvariant''(M, NTL)) .
+
+    op parseLemma : Module QidList -> [Term] .
+    ceq parseLemma(M, QL) = getTerm(metaNormalize(M, '_->_[GAMMA, DELTA]))
+        if '_->_[GAMMA,DELTA] := getTerm(metaParse(M, none, QL, 'NuITP-Clause)) .
+    ceq parseLemma(M, QL) = getTerm(metaNormalize(M, '_->_['true.NuITP-Bool, getTerm(metaParse(M, none, QL, 'NuITP-Clause))]))
+        if getTerm(metaParse(M, none, QL, anyType)) :: Term .
+
+    --- Add Lemma
+    eq < OID : CID | ATS, module: M, lemmasui: LEMMAS > parse('add`lemma_.['bubble[ARG1]]) = 
+        if parseLemma(M, downTerm(ARG1, (nil).QidList)) :: Term
+        then < OID : CID | ATS, module: M, lemmasui: LEMMAS ;; parseLemma(M, downTerm(ARG1, (nil).QidList)) > write(stdout, OID, "\n\033[1;32m  Lemma added successfully.\033[0m\n\n")
+        else < OID : CID | ATS, module: M, lemmasui: LEMMAS > write(stdout, oid, errorMsg(4))
+        fi .
+endm
+
+set show command off . 
+erew in DM-CHECK-UI : init .
