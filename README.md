@@ -1,49 +1,91 @@
 # DM-Check: A Deductive Model Checker
 
-**DM-Check** integrates **narrowing-based symbolic model checking** with **inductive theorem proving** to establish inductive invariants (transition-closed invariants) in a symbolic manner for a given topmost Maude system module — that is, for a topmost rewrite theory specifying a concurrent system.
+**DM-Check** integrates *narrowing-based symbolic exploration* with *inductive theorem proving* to establish **inductive invariants** (i.e., transition-closed invariants) in a symbolic manner for a given topmost Maude system module.
 
-The candidate inductive invariant is given as a disjunction of constrained patterns.
+A candidate invariant is provided as a **disjunction of constrained patterns** of the form:
+
+where each `u` is a pattern (a constructor term with variables describing sets of states) and each `φ` is a constraint (a conjunction of equalities).
 
 ---
 
-## 🔍 How It Works
+## Table of Contents
 
-1. **Narrowing-based symbolic exploration**  
+- [Overview](#overview)
+- [Verification Workflow](#verification-workflow)
+- [Features](#features)
+- [Installation](#installation)
+- [Basic Usage](#basic-usage)
+- [Main Commands](#main-commands)
+- [Auxiliary and Interactive Commands](#auxiliary-and-interactive-commands)
+- [Examples](#examples)
+- [Integration with NuITP](#integration-with-nuitp)
+- [Citation and License](#citation-and-license)
+- [Contact](#contact)
+
+---
+
+## Overview
+
+DM-Check combines **symbolic model checking** with **deductive reasoning** to verify properties of concurrent systems specified in Maude.  
+It symbolically explores the transition system using narrowing and proves inductiveness of invariants using constraint-based reasoning.
+
+---
+
+## Verification Workflow
+
+1. **Symbolic Exploration**  
    The tool uses narrowing with the module’s rewrite rules to compute one-step symbolic successors of the provided patterns.
 
-2. **Symbolic instance verification**  
-   Each successor is checked to be a symbolic instance of a parent pattern via matching modulo axioms and constraint implication.  
-   Constraint reasoning is delegated to the **NuITP** tool.
+2. **Symbolic Instance Verification**  
+   Each successor is checked to be a symbolic instance of a parent pattern through matching modulo axioms and constraint implication.  
+   Constraint reasoning is delegated to the **NuITP** solver.
 
-The checks are **sound** but not necessarily complete. When they fail, DM-Check offers commands to guide additional reasoning.
-
----
-
-## ⚙️ Additional Capabilities
-
-- Check **subsumption** between two disjunctions of constrained patterns (for invariant generalization or initial-state characterization).  
-- Detect **intersections** between two disjunctions of constrained patterns.  
-- **Incorporate supporting lemmas** to help prove invariants.  
-- **Display** loaded lemmas, the selected theory, proof obligations, and the result of the last command.  
-- **Delegate** unproven results to NuITP by marking them as lemmas.  
-- **Re-execute** verification after adding lemmas or external proofs.
+When automatic checking is insufficient, DM-Check allows interactive proof guidance through additional commands.
 
 ---
 
-## 🧩 Installation
+## Features
 
-1. **Install Maude**  
-   Download and install **The Maude System** (version 3.5.1 or later).  
-   👉 <https://maude.cs.illinois.edu/>
+- ✅ Symbolic inductive invariant verification  
+- 🔄 Subsumption (containment) checking between disjunctions of constrained patterns  
+- 🚫 Intersection detection between symbolic state sets  
+- 📚 Support for user-defined lemmas (in NuITP syntax)  
+- 🧠 Delegation of complex reasoning to **NuITP**  
+- 🔍 Interactive commands for manual proof steps  
+- 🧾 Re-execution of proofs after adding new lemmas  
 
-2. **Download DM-Check**  
-   Latest version: **v0.2.0a**  
-   - [⬇️ Download ZIP](https://github.com/ralorueda/DM-Check/releases/download/v0.2.0a/dm-check-v0.2.0a.zip)  
-   - [📝 Patch Notes](https://github.com/ralorueda/DM-Check/releases/tag/v0.2.0a)
+---
 
-3. **Unzip** the archive into a folder of your choice.
+## Installation
 
-4. **Load in Maude**
-   ```maude
-   load your-system-module.maude
-   load /path/to/dm-check/dm-check-ui
+### 1. Install Maude
+
+Download and install **[The Maude System](https://maude.cs.illinois.edu/)** version **3.5.1** or later.  
+If Maude is already installed, proceed to the next step.
+
+### 2. Download DM-Check
+
+- **Version:** v0.2.0a  
+- **Download:** [Link to release](#)  
+- **Patch Notes:** [View](#)
+
+### 3. Unzip DM-Check
+
+Extract the downloaded archive into a directory of your choice.
+
+### 4. Load DM-Check in Maude
+
+Start Maude and load both your system module and DM-Check:
+
+load $PATH$/dm-check-ui
+
+
+Once loaded, DM-Check will be available through its interactive interpreter.
+
+## Basic Usage
+
+### Set the Target Module
+
+```bash
+DM-Check> set module R&W-FAIR .
+
