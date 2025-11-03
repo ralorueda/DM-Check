@@ -38,8 +38,8 @@ The checks are **sound** but not necessarily complete. When they fail, DM-Check 
 
 2. **Download DM-Check**  
    Latest version: **v0.2.0a**  
-   - [⬇️ Download ZIP](https://github.com/vrain-upv/dm-check/releases/download/v0.2.0a/dm-check-v0.2.0a.zip)  
-   - [📝 Patch Notes](https://github.com/vrain-upv/dm-check/releases/tag/v0.2.0a)
+   - [⬇️ Download ZIP](https://github.com/ralorueda/DM-Check/releases/download/v0.2.0a/dm-check-v0.2.0a.zip)  
+   - [📝 Patch Notes](https://github.com/ralorueda/DM-Check/releases/tag/v0.2.0a)
 
 3. **Unzip** the archive into a folder of your choice.
 
