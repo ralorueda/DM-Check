@@ -86,6 +86,5 @@ Once loaded, DM-Check will be available through its interactive interpreter.
 
 ### Set the Target Module
 
-```bash
-DM-Check> set module R&W-FAIR .
+`DM-Check> set module R&W-FAIR .`
 
