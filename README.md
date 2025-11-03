@@ -4,7 +4,7 @@
 It aims to establish inductive invariants (i.e., transition-closed invariants) symbolically for concurrent systems specified as topmost Maude modules.
 
 The tool allows users to:
-- Verify whether a set of states is an invariant.
+- Verify whether a disjunction of patterns is an invariant.
 - Check containment (subsumption) between two symbolic state descriptions.
 - Detect intersections between symbolic state sets.
 - Interactively reason with lemmas and symbolic exploration.
@@ -18,7 +18,7 @@ The tool allows users to:
 
 ### 1️⃣ Install Maude
 DM-Check requires **The Maude System** (version 3.5.1 or later).  
-Download and install Maude from the official Maude website.
+Download and install Maude from the [official Maude GitHub](https://github.com/maude-lang/Maude/releases/tag/Maude3.5.1).
 
 ### 2️⃣ Download DM-Check
 Visit the DM-Check official page:  
