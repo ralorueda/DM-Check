@@ -195,6 +195,7 @@ mod DM-CHECK-SYNTAX is
     op add`lemma_. : Bubble -> Command .
 
     op check`invariant_. : Bubble -> Command .
+    op check`ind-invariant_. : Bubble -> Command .
     op check_subsumed`by_. : Bubble Bubble -> Command .
     op intersect_with_. : Bubble Bubble -> Command .
     op empty_. : Token -> Command .
@@ -294,6 +295,8 @@ mod DM-CHECK-UI is
     op parseCommand : [Module] Oid String -> Msg .
     ceq parseCommand(noModule, OID, STR) = write(stdout, OID, errorMsg(1)) 
         if 'check_subsumed`by_.['bubble[ARG1],'bubble[ARG2]] := getTerm(metaParse(upModule('DM-CHECK-SYNTAX, false), none, tokenize(STR), 'Command)) .
+    ceq parseCommand(noModule, OID, STR) = write(stdout, OID, errorMsg(1)) 
+        if 'check`ind-invariant_.['bubble[ARG1]] := getTerm(metaParse(upModule('DM-CHECK-SYNTAX, false), none, tokenize(STR), 'Command)) .
     ceq parseCommand(noModule, OID, STR) = write(stdout, OID, errorMsg(1)) 
         if 'check`invariant_.['bubble[ARG1]] := getTerm(metaParse(upModule('DM-CHECK-SYNTAX, false), none, tokenize(STR), 'Command)) .
     ceq parseCommand(noModule, OID, STR) = write(stdout, OID, errorMsg(1)) 
@@ -477,11 +480,17 @@ mod DM-CHECK-UI is
         /\ notFound(OUTPUT, ID) .
 
     --- check INVARIANT .
-    eq < OID : CID | ATS, module: M > parse('check`invariant_.['bubble[ARG]]) = 
+    eq < OID : CID | ATS, module: M > parse('check`ind-invariant_.['bubble[ARG]]) = 
         if (parseInvariant(M, downTerm(ARG, 'nil.QidList)) :: TermList)
         then < OID : CID | ATS, module: M > checkInvariant(M, parseInvariant(M, downTerm(ARG, 'nil.QidList)))
         else < OID : CID | ATS, module: M > write(stdout, oid, errorMsg(2))
         fi .
+
+    eq < OID : CID | ATS, module: M > parse('check`invariant_.['bubble[ARG]]) = 
+        if (parseInvariant(M, downTerm(ARG, 'nil.QidList)) :: TermList)
+        then < OID : CID | ATS, module: M > checkInvariant(M, parseInvariant(M, downTerm(ARG, 'nil.QidList)))
+        else < OID : CID | ATS, module: M > write(stdout, oid, errorMsg(2))
+        fi .  
 
     eq [do-check-inv] : < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: OUTPUT, lastCmd: (CMD | Q), tmpCmd: TMP, pos: POS > checkInvariant(M, ARG) = 
         < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: checkInvariants(M, ARG, none, LEMMAS, 1), lastCmd: (TMP | 'invariant), tmpCmd: TMP, pos: POS >
