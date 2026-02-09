@@ -621,11 +621,11 @@ fmod NuITP-UTILS is
 
     op setRls : Module RuleSet -> Module .
     eq setRls(fmod H is IL sorts SS . SSDS OPDS MAS EQS endfm, RLS) = mod H is IL sorts SS . SSDS OPDS MAS EQS RLS endm .
-    eq setRls(mod H is IL sorts SS . SSDS OPDS MAS EQS RLS endm, RLS') = mod H is IL sorts SS . SSDS OPDS MAS EQS RLS RLS' endm .
-    eq setRls(smod H is IL sorts SS . SSDS OPDS MAS EQS RLS STDS STDFS endsm, RLS') = smod H is IL sorts SS . SSDS OPDS MAS EQS RLS RLS' STDS STDFS endsm .
+    eq setRls(mod H is IL sorts SS . SSDS OPDS MAS EQS RLS endm, RLS') = mod H is IL sorts SS . SSDS OPDS MAS EQS RLS' endm .
+    eq setRls(smod H is IL sorts SS . SSDS OPDS MAS EQS RLS STDS STDFS endsm, RLS') = smod H is IL sorts SS . SSDS OPDS MAS EQS RLS' STDS STDFS endsm .
     eq setRls(fth Q is IL sorts SS . SSDS OPDS MAS EQS endfth, RLS) = th Q is IL sorts SS . SSDS OPDS MAS EQS RLS endth .
-    eq setRls(th Q is IL sorts SS . SSDS OPDS MAS EQS RLS endth, RLS') = th Q is IL sorts SS . SSDS OPDS MAS EQS RLS RLS' endth .
-    eq setRls(sth H is IL sorts SS . SSDS OPDS MAS EQS RLS STDS STDFS endsth, RLS') = sth H is IL sorts SS . SSDS OPDS MAS EQS RLS RLS' STDS STDFS endsth .
+    eq setRls(th Q is IL sorts SS . SSDS OPDS MAS EQS RLS endth, RLS') = th Q is IL sorts SS . SSDS OPDS MAS EQS RLS' endth .
+    eq setRls(sth H is IL sorts SS . SSDS OPDS MAS EQS RLS STDS STDFS endsth, RLS') = sth H is IL sorts SS . SSDS OPDS MAS EQS RLS' STDS STDFS endsth .
     eq setRls(M, RLS) = M [ owise ] .
 
     op toOps : TermList -> OpDeclSet .
