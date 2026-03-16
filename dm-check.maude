@@ -263,9 +263,11 @@ mod COMMON-OPERATIONS is
     vars NENODES NENODES' : NeNodeList .
     vars NODE NODE' : Node .
     vars ID ID' PID N IDCOUNT VCOUNT MCOUNT UCOUNT DEPTH : Nat .
+    vars NL NL' NL'' : NatList .
+    var QL : QidList .
     vars T T' T'' CTR CTR' : Term .
     var LEMMAS TS : TermSet .
-    var TL TL' TL'' : TermList .
+    var TL TL' TL'' TL''' : TermList .
     vars NETL NETL' : NeTermList .
     var VOS : VariantOptionSet .
     vars ACSB SB SB' : Substitution .
@@ -277,7 +279,7 @@ mod COMMON-OPERATIONS is
     vars MLIST MLIST' : MatcherList .
     var UTRIPLE : UnificationTriple .
     var PARENTS : ParentNodeList .
-    var CHILDREN : ChildNodeList .
+    vars CHILDREN CHILDREN' : ChildNodeList .
     var CHILD : ChildNode .
     var NTS : NeTermSet .
     var RL : Qid .
@@ -307,11 +309,19 @@ mod COMMON-OPERATIONS is
     op countNodes : NodeList -> Nat .
     eq countNodes(nil) = 0 .
     eq countNodes(NODE ; NODES) = s(countNodes(NODES)) .
-
+    
     --- Count the children in a list
     op countChildren : ChildNodeList -> Nat .
     eq countChildren(noChildren) = 0 .
     eq countChildren(CHILD , CHILDREN) = s(countChildren(CHILDREN)) .
+
+    --- Get the variables of children
+    op getVars : ChildNodeList -> TermSet .
+    eq getVars(noChildren) = mt .
+    eq getVars([ ID, PID, T, CTR, RL, SB, ACSB, MLIST, DEPTH ], CHILDREN) 
+        = getVars(T) ;; getVars(CTR) ;; getVars(CHILDREN) .
+    eq getVars([ ID, T, CTR, ACSB, MLIST, DEPTH ], CHILDREN) 
+        = getVars(T) ;; getVars(CTR) ;; getVars(CHILDREN) .
 
     --- Count the variables in a list of nodes
     op countNodeVars : NodeList -> Nat .
@@ -463,12 +473,17 @@ mod COMMON-OPERATIONS is
     eq rmvSubsumedPatterns(M, empty, LEMMAS) = empty .
     eq rmvSubsumedPatterns(M, T, LEMMAS) = T .
     eq rmvSubsumedPatterns(M, NETL, LEMMAS)
-        = rmvSubsumedPatterns'(M, NETL, NETL, LEMMAS) .
+        = rmvSubsumedPatterns'(M, NETL, NETL, LEMMAS) [owise] .
 
     op rmvSubsumedPatterns' : Module TermList TermList TermSet -> TermList .
     eq rmvSubsumedPatterns'(M, empty, NETL, LEMMAS) = empty .
     eq rmvSubsumedPatterns'(M, (T, TL), (TL', T, TL''), LEMMAS) 
-        = (rmvPatternSubsumption(M, T, (TL', TL''), LEMMAS, 0), rmvSubsumedPatterns'(M, TL, (TL', T, TL''), LEMMAS)) .
+        = if rmvPatternSubsumption(M, T, (TL', TL''), LEMMAS, 0) == empty
+          then
+            rmvSubsumedPatterns'(M, TL, (TL', TL''), LEMMAS)
+          else
+            (T, rmvSubsumedPatterns'(M, TL, (TL', T, TL''), LEMMAS))
+          fi .
 
     op rmvPatternSubsumption : Module Term TermList TermSet Nat -> TermList .
     eq rmvPatternSubsumption(M, T, empty, LEMMAS, MCOUNT) = T .
@@ -647,6 +662,38 @@ mod COMMON-OPERATIONS is
     op isSubsumed' : Node -> Bool .
     eq isSubsumed'({ID : fold: true, NATTRS}) = true .
     eq isSubsumed'(NODE) = false [owise] .
+
+    op keepTermsIn : TermList TermList -> TermList .
+    eq keepTermsIn((TL, T, TL'), (TL'', T, TL''')) = T, keepTermsIn((TL, TL'), (TL'', T, TL''')) .
+    eq keepTermsIn(TL, TL') = empty [owise] .
+
+    op subtractTerms : TermList TermList -> TermList .
+    eq subtractTerms((TL, T, TL'), (TL'', T, TL''')) = subtractTerms((TL, TL'), (TL'', TL''')) .
+    eq subtractTerms(TL', TL) = TL' [owise] .
+
+    op QLtoNL : QidList -> NatList .
+    eq QLtoNL(nil) = nil .
+    eq QLtoNL(Q) = rat(string(Q),10) . 
+    eq QLtoNL((Q QL)) = rat(string(Q),10) QLtoNL(QL) . 
+
+    op selectChildren : ChildNodeList NatList -> ChildNodeList .
+    eq selectChildren(CHILDREN, nil) = noChildren .
+    eq selectChildren(noChildren, NL) = noChildren .
+    eq selectChildren((CHILDREN, [ ID, PID, T, CTR, RL, SB, ACSB, MLIST, N ], CHILDREN'), (NL ID NL'))
+        = ([ ID, PID, T, CTR, RL, SB, ACSB, MLIST, N ], selectChildren((CHILDREN, CHILDREN'), (NL NL'))) .
+
+    op rmvChildren : ChildNodeList NatList -> ChildNodeList .
+    eq rmvChildren((CHILDREN, [ ID, PID, T, CTR, RL, SB, ACSB, MLIST, N ], CHILDREN'), (NL ID NL'))
+        = rmvChildren((CHILDREN, CHILDREN'), (NL NL')) .
+    eq rmvChildren(CHILDREN, NL) = CHILDREN [owise] .
+
+    op reorderNodes : NodeList -> NodeList .
+    eq reorderNodes(NODES ; {ID : NATTRS} ; NODES' ; {ID' : NATTRS'} ; NODES'')
+        = if (ID > ID')
+          then reorderNodes(NODES ; {ID' : NATTRS'} ; NODES' ; {ID : NATTRS} ; NODES'')
+          else (NODES ; {ID : NATTRS} ; NODES' ; {ID' : NATTRS'} ; NODES'')
+          fi .
+    eq reorderNodes(NODES) = NODES [owise] . 
 endm 
 
 mod CHECK-INVARIANT is
@@ -744,10 +791,13 @@ mod GEN-INVARIANT is
     pr CHECK-INVARIANT .
 
     var M : Module .
-    var NETL : NeTermList .
+    var NETL NETL' : NeTermList .
+    vars T CTR : Term .
+    var TL TL' TL'' TL''' : TermList .
     var LEMMAS : TermSet .
-    var DEPTH : Nat .
+    var DEPTH IDCOUNT VCOUNT : Nat .
     var VOS : VariantOptionSet .
+    var NODES : NodeList .
 
     --- Initialize the check invariants command
     op genInvariant : Module NeTermList TermSet -> DMCOutput .
@@ -761,6 +811,19 @@ mod GEN-INVARIANT is
 
     op genInvariant : Module NeTermList VariantOptionSet TermSet Nat -> DMCOutput .
     eq genInvariant(M, NETL, VOS, LEMMAS, DEPTH) = checkInvariant(M, NETL, VOS, LEMMAS, DEPTH) .
+
+    op genInvariant : Module NeTermList NeTermList TermSet -> DMCOutput .
+    eq genInvariant(M, NETL, NETL', LEMMAS)
+        = genInvariant'(M, initNodes(M, keepTermsIn(NETL, NETL'), 1, 1), subtractTerms(NETL', NETL), LEMMAS, 
+                           (1 + countNodes(initNodes(M, keepTermsIn(NETL, NETL'), 1, 1))),
+                           (1 + countNodeVars(initNodes(M, keepTermsIn(NETL, NETL'), 1, 1)))) .
+
+    op genInvariant' : Module NodeList NeTermList TermSet Nat Nat -> DMCOutput .
+    eq genInvariant'(M, NODES, NETL, LEMMAS, IDCOUNT, VCOUNT)
+        = nextLevel(< mod: M, prev: NODES, curr: checkConstraints(M, initNodes(M, NETL, IDCOUNT, VCOUNT), LEMMAS), 
+                      next: nil, depth: 1, cdepth: 0, vos: none, lemmas: LEMMAS, 
+                      idcount: (IDCOUNT + countNodes(checkConstraints(M, initNodes(M, NETL, IDCOUNT, VCOUNT), LEMMAS))), 
+                      vcount: (VCOUNT + countNodeVars(checkConstraints(M, initNodes(M, NETL, IDCOUNT, VCOUNT), LEMMAS))) >) .
 endm
 
 mod CHECK-SUBSUMED is
@@ -884,22 +947,25 @@ mod AUX-COMMANDS is
     var M : Module .
     var PARENTS : ParentNodeList .
     var CHILD : ChildNode .
-    var CHILDREN : ChildNodeList .
+    var CHILDREN CHILDREN' : ChildNodeList .
     var V : Variable .
     var VOS : VariantOptionSet .
     vars GENSET LEMMAS : TermSet .
-    var ID ID' PID IDCOUNT VCOUNT N DEPTH : Nat .
+    vars ID ID' PID IDCOUNT VCOUNT N DEPTH : Nat .
+    var NZN : NzNat .
     vars T T' CTR CTR' : Term .
+    var TL : TermList .
     vars SB SB' ACSB : Substitution .
     var OUTPUT : DMCOutput .
     var RL : Qid .
     var MLIST : MatcherList .
-    var SATTRS NATTRS : AttributeSet .
-    vars NODES NODES' : NodeList .
+    vars SATTRS NATTRS NATTRS' : AttributeSet .
+    vars NODES NODES' NODES'' : NodeList .
     var NODE : Node .
     var NTS : NeTermSet .
     var B : Bool .
     vars Q Q' : Qid .
+    vars QL QL' : QidList .
     var PARENT : Parent .
     var TP : Type .
     var CTX : Context .
@@ -910,16 +976,19 @@ mod AUX-COMMANDS is
     eq checkAuxCommand(< next: nil, SATTRS >, VCOUNT) 
         = outputAuxCommand(nil) .
     eq checkAuxCommand(< mod: M, vos: VOS, lemmas: LEMMAS, init: NODES, next: NODES', SATTRS >, VCOUNT)
-        = outputAuxCommand(renameNodes(checkSubsumption(M, NODES', NODES, VOS, LEMMAS), VCOUNT)) .
+        = outputAuxCommand(checkSubsumption(M, renameNodes(NODES', VCOUNT), NODES, VOS, LEMMAS)) .
 
     --- Process the output for the auxiliary commands
     op outputAuxCommand : NodeList -> ChildNodeList .
-    eq outputAuxCommand(nil) = noChildren .
-    eq outputAuxCommand({ID : fold: true, NATTRS} ; NODES) = outputAuxCommand(NODES) .
-    eq outputAuxCommand({ID : fold: false, pid: PID, term: T, ctr: CTR, rule: RL, sub: SB, acsub: ACSB, match: MLIST, ndepth: N, ntype: gNode, NATTRS} ; NODES)
-        = [ ID, PID, T, CTR, RL, SB, ACSB, MLIST, N ], outputAuxCommand(NODES) .
-    eq outputAuxCommand({ID : fold: false, term: T, ctr: CTR, acsub: ACSB, match: MLIST, ndepth: N, ntype: sNode, NATTRS} ; NODES)
-        = [ ID, T, CTR, ACSB, MLIST, 0 ], outputAuxCommand(NODES) .
+    eq outputAuxCommand(NODES) = outputAuxCommand'(reorderNodes(NODES)) .
+
+    op outputAuxCommand' : NodeList -> ChildNodeList .
+    eq outputAuxCommand'(nil) = noChildren .
+    eq outputAuxCommand'({ID : fold: true, NATTRS} ; NODES) = outputAuxCommand'(NODES) .
+    eq outputAuxCommand'({ID : fold: false, pid: PID, term: T, ctr: CTR, rule: RL, sub: SB, acsub: ACSB, match: MLIST, ndepth: N, ntype: gNode, NATTRS} ; NODES)
+        = [ ID, PID, T, CTR, RL, SB, ACSB, MLIST, N ], outputAuxCommand'(NODES) .
+    eq outputAuxCommand'({ID : fold: false, term: T, ctr: CTR, acsub: ACSB, match: MLIST, ndepth: N, ntype: sNode, NATTRS} ; NODES)
+        = [ ID, T, CTR, ACSB, MLIST, 0 ], outputAuxCommand'(NODES) .
 
     --- CASE command
     op case : Module ParentNodeList ChildNode Variable TermSet Nat Nat VariantOptionSet TermSet -> ChildNodeList .
@@ -1036,16 +1105,23 @@ mod AUX-COMMANDS is
         = '_|_[T, CTR], nodesToInv(noParents || CHILDREN) .
 
     --- GENERALIZE command
-    op generalize : Module ParentNodeList ChildNode NeTermList Nat VariantOptionSet TermSet -> ChildNodeList .
-    eq generalize(M, PARENTS, [ ID, PID, T, CTR, RL, SB, ACSB, MLIST, N ], '_|_[T', CTR'], VCOUNT, VOS, LEMMAS)
+    op generalize : Module ParentNodeList ChildNodeList NeTermList Nat VariantOptionSet TermSet QidList -> ChildNodeList .
+    eq generalize(M, PARENTS, CHILDREN, '_|_[T', CTR'], VCOUNT, VOS, LEMMAS, QL)
         = generalize'(< mod: M, vos: VOS, lemmas: LEMMAS, init: rebuildParents(PARENTS),
-                          next: checkConstraints(M, rebuildChildren([ ID, PID, applySub(T', rename(getVars((T', CTR')), VCOUNT)), applySub(CTR', rename(getVars((T', CTR')), VCOUNT)), 'none, none, none, noMatch, N ]), LEMMAS) >) .
-         
+                        prev: rebuildChildren(rmvChildren(CHILDREN, QLtoNL(QL))),
+                        next: checkConstraints(M, applyGeneralize(selectChildren(CHILDREN, QLtoNL(QL)), '_|_[T', CTR'], VCOUNT), LEMMAS) >) .
+    
     op generalize' : DMCState -> ChildNodeList .
     eq generalize'(< next: nil, SATTRS >) 
         = outputAuxCommand(nil) .
-    eq generalize'(< mod: M, vos: VOS, lemmas: LEMMAS, init: NODES, next: NODES', SATTRS >)
-        = outputAuxCommand(checkSubsumption(M, NODES', NODES, VOS, LEMMAS)) .
+    eq generalize'(< mod: M, vos: VOS, lemmas: LEMMAS, init: NODES, prev: NODES', next: NODES'', SATTRS >)
+        = outputAuxCommand(NODES' ; checkSubsumption(M, NODES'', NODES, VOS, LEMMAS)) .
+
+    op applyGeneralize : ChildNodeList NeTermList Nat -> NodeList .
+    eq applyGeneralize(noChildren, TL, VCOUNT) = nil .
+    eq applyGeneralize(([ ID, PID, T, CTR, RL, SB, ACSB, MLIST, N ], CHILDREN), '_|_[T', CTR'], VCOUNT)
+        = rebuildChildren([ ID, PID, applySub(T', rename(getVars((T', CTR')), VCOUNT)), applySub(CTR', rename(getVars((T', CTR')), VCOUNT)), 'none, none, none, noMatch, N ]) ;
+          applyGeneralize(CHILDREN, '_|_[T', CTR'], VCOUNT + countVars(getVars((T', CTR')))) .
 endm
 
 mod DM-CHECK is

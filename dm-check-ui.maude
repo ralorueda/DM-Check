@@ -55,13 +55,14 @@ mod DM-CHECK-STRING is
 
     --- Error Messages
     op errorMsg : Nat -> String .
+    op errorMsg : Nat Nat -> String .
     eq errorMsg(0) = "\n\033[1;31m  Warning:\033[0m unexpected error.\n\n" .
     eq errorMsg(1) = "\n\033[1;31m  Warning:\033[0m module not loaded.\n\n" .
     eq errorMsg(2) = "\n\033[1;31m  Warning:\033[0m error parsing invariant.\n\n" .
     eq errorMsg(3) = "\n\033[1;31m  Warning:\033[0m error parsing command.\n\n" .
     eq errorMsg(4) = "\n\033[1;31m  Warning:\033[0m error parsing lemma.\n\n" .
     eq errorMsg(5) = "\n\033[1;31m  Warning:\033[0m no last result saved.\n\n" .
-    eq errorMsg(6) = "\n\033[1;31m  Warning:\033[0m no child found.\n\n" .
+    eq errorMsg(6) = "\n\033[1;31m  Warning:\033[0m child or children not found.\n\n" .
     eq errorMsg(7) = "\n\033[1;31m  Warning:\033[0m no matcher found.\n\n" .
     eq errorMsg(8) = "\n\033[1;31m  Warning:\033[0m no lemma found.\n\n" .
     eq errorMsg(9) = "\n\033[1;31m  Warning:\033[0m command not available for intersect results.\n\n" .
@@ -77,9 +78,8 @@ mod DM-CHECK-STRING is
     eq errorMsg(19) = "\n\033[1;31m  Warning:\033[0m subterm not found.\n\n" .
     eq errorMsg(20) = "\n\033[1;31m  Warning:\033[0m variable not found.\n\n" .
     eq errorMsg(21) = "\n\033[1;31m  Warning:\033[0m invalid pattern for generalization.\n\n" .
-    eq errorMsg(22) = "\n\033[1;31m  Warning:\033[0m the selected child could not be generalized.\n\n" .
-    eq errorMsg(23) = "\n\033[1;31m  Warning:\033[0m variable clash between terms and/or constraints.\n\n" .
-    eq errorMsg(24) = "\n\033[1;31m  Warning:\033[0m command only available for generate ind-invariant results.\n\n" .
+    eq errorMsg(22) = "\n\033[1;31m  Warning:\033[0m variable clash between terms and/or constraints.\n\n" .
+    eq errorMsg(23) = "\n\033[1;31m  Warning:\033[0m command only available for generate ind-invariant results.\n\n" .
     
     op toString : Module TermList -> String .
     eq toString(M, 'true.NuITP-Bool) = "true" .
@@ -183,10 +183,10 @@ mod DM-CHECK-STRING is
     eq toStringGen(M, PARENTS || ([ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN), LEMMAS?, POS) = "\033[1;31m  Invariant could not be proved.\033[0m\n" + toStringParents(M, PARENTS) + "\n" + toStringChildrenInv(M, ([ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN)) .
     eq toStringGen(M, PARENTS || noChildren, mt, POS) = 
         if (POS == "")
-        then "\033[1;32m  The following Invariant is satisfied \033[0m\n\n" + parentsToInv(M, PARENTS)
-        else "\033[1;32m  The following Invariant is satisfied \033[0m\n\n" + parentsToInv(M, PARENTS) + "\n\n\033[1;32m    with the following proof obligations:\033[0m\n\n" + POS
+        then "\033[1;32m  The following invariant is satisfied \033[0m\n\n" + parentsToInv(M, PARENTS)
+        else "\033[1;32m  The following invariant is satisfied \033[0m\n\n" + parentsToInv(M, PARENTS) + "\n\n\033[1;32m    with the following proof obligations:\033[0m\n\n" + POS
         fi .
-    eq toStringGen(M, PARENTS || noChildren, LEMMAS, POS) = "\033[1;32m  The following Invariant is satisfied \033[0m\n\n" + parentsToInv(M, PARENTS) + "\n\n\033[1;32m    with the following proof obligations:\033[0m\n\n" + toStringLemmas(M, LEMMAS) + (if (POS == "") then "" else "\n" + POS fi) .
+    eq toStringGen(M, PARENTS || noChildren, LEMMAS, POS) = "\033[1;32m  The following invariant is satisfied \033[0m\n\n" + parentsToInv(M, PARENTS) + "\n\n\033[1;32m    with the following proof obligations:\033[0m\n\n" + toStringLemmas(M, LEMMAS) + (if (POS == "") then "" else "\n" + POS fi) .
     
     op parentsToInv : Module ParentNodeList -> String .
     eq parentsToInv(M, noParents) = "" .
@@ -260,7 +260,7 @@ mod DM-CHECK-SYNTAX is
     op vunify`to_with_=?_. : Token Bubble Bubble -> Command .
     op narrowing`to_on_. : Token Bubble -> Command .
     op narrow`to_on_. : Token Bubble -> Command .
-    op generalize_to_. : Token Bubble -> Command .
+    op generalize_to_. : Bubble Bubble -> Command .
 endm
 
 mod DM-CHECK-UI is
@@ -435,6 +435,26 @@ mod DM-CHECK-UI is
     eq notFound((CHILDREN1, [ ID, T, CTR, ACSB, ML, N ], CHILDREN2), ID) = false .
     eq notFound(CHILDREN, ID) = true [ owise ] .
 
+    op notFound : DMCOutput QidList -> Bool .
+    eq notFound(OUTPUT, (nil).QidList) = false .
+    ceq notFound((PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2)), (Q QL)) 
+        = notFound((PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2)), QL) 
+    if ID == rat(string(Q),10) .
+    ceq notFound((PARENTS || (CHILDREN1, [ ID, T, CTR, ACSB, ML, N ], CHILDREN2)), (Q QL)) 
+        = notFound((PARENTS || (CHILDREN1, [ ID, T, CTR, ACSB, ML, N ], CHILDREN2)), QL)
+    if ID == rat(string(Q),10) .
+    eq notFound(OUTPUT, QL) = true [ owise ] .
+
+    op allFound : ChildNodeList QidList -> Bool .
+    eq allFound(CHILDREN, (nil).QidList) = true .
+    ceq allFound((CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2), (Q QL)) 
+        = allFound((CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2), QL) 
+    if ID == rat(string(Q),10) .
+    ceq allFound((CHILDREN1, [ ID, T, CTR, ACSB, ML, N ], CHILDREN2), (Q QL)) 
+        = allFound((CHILDREN1, [ ID, T, CTR, ACSB, ML, N ], CHILDREN2), QL)
+    if ID == rat(string(Q),10) .
+    eq allFound(CHILDREN, QL) = false [ owise ] .
+    
     op applySub : NarrowingApplyResult Substitution -> NarrowingApplyResult .
     eq applySub({ T1, TY, CO, Q, SB1, SB2, Q' }, V <- T) = { applySub(T1, V <- T), TY, CO, Q, applySub(SB1, V <- T), applySub(SB2, V <- T), Q' } .
 
@@ -910,39 +930,33 @@ mod DM-CHECK-UI is
 
     --- Generate next level
     eq < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'generate), lastRes: (PARENTS || CHILDREN) > parse('generate`next`level`..Command) = 
-        < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'generate), lastRes: checkInvariant(M, genNextLevel(M, (PARENTS || CHILDREN), LEMMAS), LEMMAS) >
-        write(stdout, OID, "\n  " + toStringGen(M, genInvariant(M, genNextLevel(M, (PARENTS || CHILDREN), LEMMAS), LEMMAS), (LEMMAS), POS) + "\n\n") .
+        < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'generate), lastRes: genInvariant(M, nodesToInv(PARENTS || noChildren), genNextLevel(M, (PARENTS || CHILDREN), LEMMAS), LEMMAS) >
+        write(stdout, OID, "\n  " + toStringGen(M, genInvariant(M, nodesToInv(PARENTS || noChildren), genNextLevel(M, (PARENTS || CHILDREN), LEMMAS), LEMMAS), (LEMMAS), POS) + "\n\n") .
     eq < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'generate), lastRes: (PARENTS || CHILDREN) > parse('gen`next`level`..Command) = 
         < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'generate), lastRes: (PARENTS || CHILDREN) > parse('generate`next`level`..Command) .
 
     --- Generalize using PATTERN
-    eq < OID : CID | ATS, module: noModule > parse('generalize_to_.['token[ARG1],'bubble[ARG2]]) = < OID : CID | ATS, module: noModule > write(stdout, oid, errorMsg(1)) .
-    ceq < OID : CID | ATS, module: M, lastCmd: (CMD | LSTCMD), tmpCmd: TMP > parse('generalize_to_.['token[ARG1],'bubble[ARG2]]) 
-        = < OID : CID | ATS, module: noModule, lastCmd: (CMD | LSTCMD), tmpCmd: TMP > write(stdout, oid, errorMsg(24)) 
+    eq < OID : CID | ATS, module: noModule > parse('generalize_to_.['bubble[ARG1],'bubble[ARG2]]) = < OID : CID | ATS, module: noModule > write(stdout, oid, errorMsg(1)) .
+    ceq < OID : CID | ATS, module: M, lastCmd: (CMD | LSTCMD), tmpCmd: TMP > parse('generalize_to_.['bubble[ARG1],'bubble[ARG2]]) 
+        = < OID : CID | ATS, module: noModule, lastCmd: (CMD | LSTCMD), tmpCmd: TMP > write(stdout, oid, errorMsg(23)) 
         if LSTCMD == 'invariant or-else LSTCMD == 'subsumption or-else LSTCMD == 'intersect .
-    eq < OID : CID | ATS, module: M, lastCmd: ("" | 'noType) > parse('generalize_to_.['token[ARG1],'bubble[ARG2]]) = < OID : CID | ATS, module: M, lastCmd: ("" | 'noType) > write(stdout, oid, errorMsg(5)) .
-    ceq < OID : CID | ATS, module: M, lastCmd: (CMD | 'generate), lastRes: OUTPUT > parse('generalize_to_.['token[ARG1],'bubble[ARG2]]) = < OID : CID | ATS, module: M, lastCmd: (CMD | 'generate), lastRes: OUTPUT > write(stdout, oid, errorMsg(6))
-        if ID := rat(string(downTerm(ARG1, 'nil.QidList)),10)
-        /\ notFound(OUTPUT, ID) .
-    ceq < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'generate), lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2)) > parse('generalize_to_.['token[ARG1],'bubble[ARG2]]) = 
+    eq < OID : CID | ATS, module: M, lastCmd: ("" | 'noType) > parse('generalize_to_.['bubble[ARG1],'bubble[ARG2]]) = < OID : CID | ATS, module: M, lastCmd: ("" | 'noType) > write(stdout, oid, errorMsg(5)) .
+    ceq < OID : CID | ATS, module: M, lastCmd: (CMD | 'generate), lastRes: OUTPUT > parse('generalize_to_.['bubble[ARG1],'bubble[ARG2]]) = < OID : CID | ATS, module: M, lastCmd: (CMD | 'generate), lastRes: OUTPUT > write(stdout, oid, errorMsg(6))
+        if notFound(OUTPUT, downTerm(ARG1, 'nil.QidList)) .
+    ceq < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'generate), lastRes: (PARENTS || CHILDREN) > parse('generalize_to_.['bubble[ARG1],'bubble[ARG2]]) = 
         if (parseInvariant(M, downTerm(ARG2, 'nil.QidList)) :: TermList)
         then
-            if getVars(parseInvariant(M, downTerm(ARG2, 'nil.QidList))) in (getVars(T) ;; getVars(CTR))
+            if getVars(parseInvariant(M, downTerm(ARG2, 'nil.QidList))) in getVars(CHILDREN)
             then
-                < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'generate), lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2)) > write(stdout, oid, errorMsg(23))
+                < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'generate), lastRes: (PARENTS || CHILDREN) > write(stdout, oid, errorMsg(22))
             else
-                if isSubsumed(M, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], parseInvariant(M, downTerm(ARG2, 'nil.QidList)), none, LEMMAS)
-                then
-                    < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'generate), lastRes: (PARENTS || (CHILDREN1, generalize(M, PARENTS, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], parseInvariant(M, downTerm(ARG2, 'nil.QidList)), getNextVar((CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2), 0), none, LEMMAS), CHILDREN2)) > 
-                    write(stdout, OID, "\n  " + toStringGen(M, (PARENTS || (CHILDREN1, generalize(M, PARENTS, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], parseInvariant(M, downTerm(ARG2, 'nil.QidList)), getNextVar((CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2), 0), none, LEMMAS), CHILDREN2)), (LEMMAS), POS) + "\n\n")
-                else
-                    < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'generate), lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2)) > write(stdout, oid, errorMsg(22))
-                fi
+                < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'generate), lastRes: (PARENTS || generalize(M, PARENTS, CHILDREN, parseInvariant(M, downTerm(ARG2, 'nil.QidList)), getNextVar(CHILDREN, 0), none, LEMMAS, downTerm(ARG1, 'nil.QidList))) > 
+                write(stdout, OID, "\n  " + toStringGen(M, (PARENTS || generalize(M, PARENTS, CHILDREN, parseInvariant(M, downTerm(ARG2, 'nil.QidList)), getNextVar(CHILDREN, 0), none, LEMMAS, downTerm(ARG1, 'nil.QidList))), (LEMMAS), POS) + "\n\n")
             fi
         else
-            < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'generate), lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2)) > write(stdout, oid, errorMsg(21))
+            < OID : CID | ATS, module: M, lemmasui: LEMMAS, pos: POS, lastCmd: (CMD | 'generate), lastRes: (PARENTS || CHILDREN) > write(stdout, oid, errorMsg(21))
         fi 
-        if ID == rat(string(downTerm(ARG1, 'nil.QidList)),10) .
+        if allFound(CHILDREN, downTerm(ARG1, 'nil.QidList)) .
 
     --- empty CHILD .
     ceq < OID : CID | ATS, module: M, lemmasui: LEMMAS, lastRes: (PARENTS || (CHILDREN1, [ ID, PID, T, CTR, RL, SB, ACSB, ML, N ], CHILDREN2)), lastCmd: (CMD | 'invariant), pos: POS > parse('empty_.['token[ARG1]]) = 
