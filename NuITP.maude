@@ -76,6 +76,7 @@ fmod NuITP-CLAUSE is
     eq (EC -> EC) = true .
     eq ((EC /\ EC') -> EC) = true .
     eq ((EC /\ EC') -> EC /\ EC'') = ((EC /\ EC') -> EC'') .
+    eq (EC -> (EC /\ EC'')) = (EC -> EC'') .
 
     eq (E /\ EC) -> ((E \/ ED) /\ CED) = ((E /\ EC) -> CED) [ owise ] .
     eq (((E \/ ED) /\ EC) -> CED) = ((E /\ EC) -> CED) /\ ((ED /\ EC) -> CED) [ owise ] .
@@ -7256,5 +7257,3 @@ endm
 set show command off . 
 
 ---erew in NuITP : init .
-
-eof
