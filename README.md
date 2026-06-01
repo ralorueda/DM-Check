@@ -34,7 +34,7 @@ This folder will contain all files needed to run DM-Check.
 2. Load your system module (the `.maude` file describing the system to verify).  
 3. Load DM-Check with the following command:
    ```maude
-   load $folder_path$/dm-check-ui.maude
+   load $folder_path$/dm-check.maude
    ```
    *(replace `$folder_path$` with the directory where DM-Check was extracted).*
 
@@ -47,7 +47,7 @@ Once loaded, you can start using DM-Check commands to check invariants, containm
 Inside Maude:
 
 ```maude
-Maude> load dm-check-ui
+Maude> load dm-check
 DM-Check> set module MY-SYSTEM .
 DM-Check> check ind-invariant myInvariant .
 ```
