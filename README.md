@@ -23,7 +23,7 @@ Download and install Maude from the [official Maude GitHub](https://github.com/m
 ### 2️⃣ Download DM-Check
 Visit the [DM-Check installation official page](https://safe-tools.dsic.upv.es/dmc/install.html).
 
-Select the latest version (e.g., **v0.2.0a**) and download the compressed package.
+Select the latest version and download the compressed package.
 
 ### 3️⃣ Unzip DM-Check
 Extract the downloaded archive to a directory of your choice.  
@@ -49,7 +49,7 @@ Inside Maude:
 ```maude
 Maude> load dm-check-ui
 DM-Check> set module MY-SYSTEM .
-DM-Check> check invariant myInvariant .
+DM-Check> check ind-invariant myInvariant .
 ```
 
 ---
