@@ -1,0 +1,82 @@
+set include BOOL off .
+
+fmod MY-BOOL is
+    sort Bool .
+    op False : -> Bool  [ctor rpo 0] .   
+    op True : -> Bool [ctor rpo 1] .
+    op _or_ : Bool Bool -> Bool [assoc comm rpo 2] .
+    op _and_ : Bool Bool -> Bool [assoc comm rpo 3] .
+    op _implies_ : Bool Bool -> Bool [rpo 4 ].
+    op _iff_ : Bool Bool -> Bool [comm rpo 5] .
+    op not : Bool -> Bool [rpo 6] .
+
+    var X : Bool .
+
+    eq [B1] : X or True = True [variant] .
+    eq [B2] : X or False = X [variant] .
+    eq [B3] : X and True = X [variant] .
+    eq [B4] : X and False = False [variant] .
+    eq [B5] : False implies X = True [variant] .
+    eq [B6] : True implies X = X [variant] .
+    eq [B7] : X iff X = True [variant] .
+    eq [B8] : True iff False = False [variant] .
+    eq [B9] : not(True) = False [variant] .
+    eq [B10] : not(False) = True [variant] .
+endfm
+
+fmod NAT-PRESBURGER is protecting MY-BOOL .
+  sorts NzNat Nat .
+  subsort NzNat <  Nat .
+  op 0 : -> Nat [ctor rpo 10] .
+  op 1 : -> NzNat [ctor rpo 11] .
+  op _+_ : Nat Nat -> Nat [assoc comm id: 0 rpo 12] .
+  op _+_ : NzNat Nat -> NzNat [ditto] .   
+  op _+_ : NzNat NzNat -> NzNat [ctor ditto] . 
+  op _>_ : Nat Nat -> Bool [rpo 13] .
+  op _.=._ : Nat Nat -> Bool [comm rpo 14] .  
+
+  vars n m : Nat .  vars p q : NzNat .  var b : Bool .
+
+  eq n > n + m = False [variant] .
+  eq n + p > n = True [variant] .
+  
+  eq n .=. n = True [variant] .
+  eq n .=. (n + p) = False [variant] .
+endfm
+
+fmod PROC-MSET is
+  protecting NAT-PRESBURGER .
+  sorts NMSet ProcMSet .
+  subsorts Nat < NMSet < ProcMSet .  
+  op _,_ : ProcMSet ProcMSet -> ProcMSet [assoc comm rpo 20] .   
+  op _,_ : NMSet NMSet -> NMSet [ditto] .      
+  op crit : Nat ->  ProcMSet [ctor rpo 21] .      
+  op tok : Nat -> ProcMSet [ctor rpo 22] . 
+  op _in_ : Nat NMSet -> Bool [rpo 23] . 
+  op [_] : Nat -> NMSet [rpo 24] . 
+  
+  vars n m : Nat .  vars q r : NzNat . vars S T U : NMSet .
+
+  eq n in m = n .=. m .
+  eq n in (n,U) = True .
+  ceq n in (m,U) = False if n .=. m = False /\ n in U = False .
+
+  eq [0] = 0 .
+  eq [n + 1] = (n + 1),[n] .
+endfm
+  
+mod TOKEN-RING is protecting PROC-MSET .
+  sort State .
+  op <_>{_} : ProcMSet NzNat -> State [ctor rpo 30] .
+  op init : NzNat -> State [rpo 31] .
+  
+  vars n m : Nat . vars p q r : NzNat . vars S T : NMSet .
+
+  eq init(q) = < tok(0),[q] >{q} .
+
+  rl [w2c] : < tok(n),n,S >{q} => < crit(n),S >{q} [narrowing] .	       
+  rl [c2w1] : < crit(n),S >{n + p} => < n,tok(n + 1),S >{n + p} [narrowing]  .
+  rl [c2w2] : < crit(q),S >{q} => < q,tok(0),S >{q} [narrowing]  .	       
+endm
+
+

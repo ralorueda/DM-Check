@@ -1,0 +1,25 @@
+***(
+Copyright 2023-2026 DM-Check team
+
+This program is free software: you can redistribute it and/or modify it under the terms 
+of the GNU General Public License as published by the Free Software Foundation, either 
+version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+)***
+
+mod R&W is 
+  sort Natural . 
+  op 0 : -> Natural [ctor] . 
+  op s : Natural -> Natural [ctor] .  
+  sort Config . 
+  op <_,_> : Natural Natural -> Config [ctor] .
+
+  vars R W : Natural .
+
+  rl [enter-w] : < 0, 0 > => < 0, s(0) > [narrowing] . 
+  rl [leave-w] : < R, s(W) > => < R, W > [narrowing] . 
+  rl [enter-r] : < R, 0 > => < s(R), 0 > [narrowing] . 
+  rl [leave-r] : < s(R), W > => < R, W > [narrowing] .
+endm

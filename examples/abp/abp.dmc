@@ -1,0 +1,21 @@
+--- Select the module
+set module ABP-PRED-AUX .
+
+--- Check the invariant
+check ind-invariant \
+      ((0 : on > Q:OnBPQue || P:OnBQue < on : nil) | (aP(Q:OnBPQue,0) = True)) \
+   \/ ((1 + N:iNat : on > Q':OffBPQue Q:OnBPQue || P:OnBQue < on : L:iList) | \
+         ((1 + N:iNat :: L:iList) = gen(1 + N:iNat)) /\ \
+               (aP(Q:OnBPQue,1 + N:iNat) = True) /\ (aP(Q':OffBPQue,N:iNat) = True)) \
+   \/ ((0 : off > Q':OffBPQue || P':OffBQue < off : nil) | (aP(Q':OffBPQue,0) = True)) \
+   \/ ((1 + N:iNat : off > Q:OnBPQue Q':OffBPQue || P':OffBQue < off : L:iList) | \
+         ((1 + N:iNat :: L:iList) = gen(1 + N:iNat)) /\ \
+               (aP(Q':OffBPQue,1 + N:iNat) = True) /\ (aP(Q:OnBPQue,N:iNat) = True)) \
+   \/ ((N:iNat : on > Q:OnBPQue || P:OnBQue P':OffBQue < off : L:iList) | \
+         (L:iList = gen(N:iNat)) /\ (aP(Q:OnBPQue,N:iNat) = True)) \
+   \/ ((N:iNat : off > Q':OffBPQue || P':OffBQue P:OnBQue < on : L:iList) | \
+         (L:iList = gen(N:iNat)) /\ (aP(Q':OffBPQue,N:iNat) = True)) . 
+
+--- Add the needed lemma to prove the invariant
+add lemma (allN(M:iNat ; NS:iSet, N:iNat) = True) -> \
+              (M:iNat = N:iNat) /\ (allN(NS:iSet, N:iNat) = True) .

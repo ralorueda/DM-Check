@@ -1,0 +1,110 @@
+***(
+Copyright 2023-2026 DM-Check team
+
+This program is free software: you can redistribute it and/or modify it under the terms 
+of the GNU General Public License as published by the Free Software Foundation, either 
+version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+)***
+
+set include BOOL off .
+
+fmod IBOOL is
+  sort iBool .
+  op True : -> iBool [ctor rpo 0] .
+  op False : -> iBool [ctor rpo 1] .
+endfm
+
+fmod BOOL-FVP is 
+   protecting IBOOL .
+
+   op _and_ : iBool iBool -> iBool [assoc comm rpo 0] .
+   op _xor_ : iBool iBool -> iBool [assoc comm rpo 1] .
+   op not_ : iBool -> iBool [rpo 2] .
+   op _or_ : iBool iBool -> iBool [rpo 3] .
+   op _<=>_ : iBool iBool -> iBool [rpo 4] .
+
+   vars X Y Z W : iBool .
+
+   eq X and True = X [variant] .
+   eq X and False = False [variant] .
+   eq X and X = X  [variant] .
+   eq X and X and Y = X and Y [variant] .   *** AC extension
+   eq X xor False = X [variant] .
+   eq X xor X = False [variant] .
+   eq X xor X xor Y = Y [variant] .         *** AC extension
+   eq not X = X xor True [variant] .
+   eq X or Y = (X and Y) xor X xor Y [variant] .
+   eq X <=> Y = True xor X xor Y [variant] .
+endfm
+
+---filtered variant unify (X:iBool or Y:iBool) <=> Z:iBool =? True .
+
+fmod NAT-FVP is 
+    protecting BOOL-FVP .
+    sort iNat .
+
+    op 0 : -> iNat [ctor rpo 10] .
+    op 1 : -> iNat [ctor rpo 11] .
+    op _+_ : iNat iNat -> iNat [ctor assoc comm id: 0 rpo 12] .
+    
+    op _>_ : iNat iNat -> iBool [rpo 13] .
+    eq X:iNat + Y:iNat + 1 > X:iNat = True [variant] .
+    eq X:iNat > X:iNat + Y:iNat = False [variant] .
+    
+    op _>=_ : iNat iNat -> iBool [rpo 14] .
+    eq X:iNat >= Y:iNat = not (Y:iNat > X:iNat) [variant] .
+    
+    op min : iNat iNat -> iNat [rpo 15] .
+    eq min(X:iNat + Y:iNat + 1, X:iNat) = X:iNat [variant] .
+    eq min(X:iNat, X:iNat + Y:iNat) = X:iNat + Y:iNat [variant] .
+    
+    op p : iNat -> iNat [rpo 16] .
+    eq p(X:iNat + 1) = X:iNat [variant] .
+    
+    op 2 : -> iNat [rpo 20] .
+    op 3 : -> iNat [rpo 21] .
+    op 4 : -> iNat [rpo 22] .
+    op 5 : -> iNat [rpo 23] .
+    op 6 : -> iNat [rpo 24] .
+    op 7 : -> iNat [rpo 25] .
+    op 8 : -> iNat [rpo 26] .
+    op 9 : -> iNat [rpo 27] .
+    op 10 : -> iNat [rpo 28] .
+    eq 2 = 1 + 1 .
+    eq 3 = 2 + 1 .
+    eq 4 = 3 + 1 .
+    eq 5 = 4 + 1 .
+    eq 6 = 5 + 1 .
+    eq 7 = 6 + 1 .
+    eq 8 = 7 + 1 .
+    eq 9 = 8 + 1 .
+    eq 10 = 9 + 1 .
+endfm
+
+mod TREE is
+  protecting NAT-FVP .
+  
+  sort Tree .
+  op Leaf : -> Tree [ctor rpo 30] .
+  op Node : iNat Tree Tree -> Tree [ctor rpo 31] .
+
+  vars N M : iNat . 
+  vars T L R : Tree .
+  
+  op minLeafDepth : Tree -> iNat [rpo 32] .
+  eq minLeafDepth(Leaf) = 0 .
+  eq minLeafDepth(Node(N,L,R)) = 1 + min(minLeafDepth(L),minLeafDepth(R)) .
+  rl minLeafDepth(Leaf) => 0 [narrowing] .
+  rl minLeafDepth(Node(N,L,R)) => 1 + min(minLeafDepth(L),minLeafDepth(R)) [narrowing] .
+  
+  op leftDrop : iNat Tree -> Tree [rpo 33] .
+  eq leftDrop(N,Leaf) = Leaf .
+  eq leftDrop(0,Node(M,L,R)) = Node(M,L,R) .
+  eq leftDrop(N + 1,Node(M,L,R)) = leftDrop(N,L) .
+  rl leftDrop(N,Leaf) => Leaf [narrowing] .
+  rl leftDrop(0,Node(M,L,R)) => Node(M,L,R) [narrowing] .
+  rl leftDrop(N + 1,Node(M,L,R)) => leftDrop(N,L) [narrowing] .
+endm

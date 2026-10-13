@@ -1,0 +1,9 @@
+# Script to prove the ABP proof obligations
+
+clear all .
+
+set module ABP-PRED .
+
+set goal (allN(M:iNat ; NS:iSet, N:iNat) = True) -> (M:iNat = N:iNat) /\ (allN(NS:iSet, N:iNat) = True) .
+apply ni* to 0 on allN($1:iNat ; $3:iSet, $2:iNat) .
+assert .

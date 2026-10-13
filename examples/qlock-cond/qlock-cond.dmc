@@ -1,0 +1,77 @@
+***(
+Copyright 2023-2026 DM-Check team
+
+This program is free software: you can redistribute it and/or modify it under the terms 
+of the GNU General Public License as published by the Free Software Foundation, either 
+version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+)***
+
+--- Select the module
+set module QLOCK .
+
+--- Check the invariant (no distinctness predicate is needed: see the
+--- guard of rule w2c in qlock-cond.maude)
+check ind-invariant \
+    ((< U:MSet | W:MSet | mt | Q:List >) | \
+        (non-mt(U:MSet W:MSet) = tt) \
+         /\ (l2ms(Q:List) = W:MSet)) \
+    \/ \
+    ((< V:MSet | T:MSet | i:Nat | i:Nat ; Q':List >) | \
+        (non-mt(V:MSet T:MSet i:Nat) = tt) \
+         /\ (l2ms(i:Nat ; Q':List) = T:MSet i:Nat)) .
+
+add lemma l2ms(X:Nat ; L:List) = (S:MSet X:Nat) -> l2ms(L:List) = S:MSet .
+add lemma l2ms(L:List) = S:MSet -> l2ms(L:List ; X:Nat) = (S:MSet X:Nat) .
+
+--- Check that the inductive invariant contains the initial states
+check \
+    ((< S:NeMSet | mt | mt | nil >) | true) \
+subsumed by \
+    ((< U:MSet | W:MSet | mt | Q:List >) | \
+        (non-mt(U:MSet W:MSet) = tt) \
+         /\ (l2ms(Q:List) = W:MSet)) \
+    \/ \
+    ((< V:MSet | T:MSet | i:Nat | i:Nat ; Q':List >) | \
+        (non-mt(V:MSet T:MSet i:Nat) = tt) \
+         /\ (l2ms(i:Nat ; Q':List) = T:MSet i:Nat)) .
+
+--- Mutual exclusion: no state of the invariant has two processes in the
+--- critical section. The lemmas are only needed by the invariant check:
+--- clear them so that the following verdicts do not list them.
+reset lemmas .
+intersect \
+    ((< U:MSet | W:MSet | mt | Q:List >) | \
+        (non-mt(U:MSet W:MSet) = tt) \
+         /\ (l2ms(Q:List) = W:MSet)) \
+    \/ \
+    ((< V:MSet | T:MSet | i:Nat | i:Nat ; Q':List >) | \
+        (non-mt(V:MSet T:MSet i:Nat) = tt) \
+         /\ (l2ms(i:Nat ; Q':List) = T:MSet i:Nat)) \
+with \
+    ((< U:MSet | W:MSet | C:MSet i:Nat j:Nat | Q:List >) | true) .
+
+--- Deadlock freedom: every state of the invariant enables some rule.
+--- The pattern of w2c includes its guard non-mt(C) = ff.
+check \
+    ((< U:MSet | W:MSet | mt | Q:List >) | \
+        (non-mt(U:MSet W:MSet) = tt) \
+         /\ (l2ms(Q:List) = W:MSet)) \
+    \/ \
+    ((< V:MSet | T:MSet | i:Nat | i:Nat ; Q':List >) | \
+        (non-mt(V:MSet T:MSet i:Nat) = tt) \
+         /\ (l2ms(i:Nat ; Q':List) = T:MSet i:Nat)) \
+subsumed by \
+    ((< U1:MSet n1:Nat | W1:MSet | C1:MSet | Q1:List >) | true) \
+    \/ ((< U2:MSet | W2:MSet n2:Nat | C2:MSet | n2:Nat ; Q2:List >) | non-mt(C2:MSet) = ff) \
+    \/ ((< U3:MSet | W3:MSet | C3:MSet n3:Nat | n3:Nat ; Q3:List >) | true) .
+
+--- Auxiliary commands to prove deadlock freedom
+vunify non-mt($17:MSet $18:MSet) =? tt in 4 .
+case to 5 on $19:NeMSet with m:Nat ;; k:Nat S:NeMSet .
+case to 7 on $23:NeMSet with m:Nat ;; k:Nat S:NeMSet .
+narrow 6 on l2ms($22:List) .
+va l2ms($25:List) with $26:MSet in 9 .
+vunify $26:NeMSet =? $27:Nat $29:MSet in 10 .

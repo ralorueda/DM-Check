@@ -1,0 +1,79 @@
+***(
+Copyright 2023-2026 DM-Check team
+
+This program is free software: you can redistribute it and/or modify it under the terms 
+of the GNU General Public License as published by the Free Software Foundation, either 
+version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+)***
+
+set include BOOL off .
+
+fmod NAT-PRESBURGER is
+    sorts NzNat Nat Boolean .
+    subsort NzNat <  Nat .
+
+    op ff : -> Boolean [ctor rpo 0] .
+    op tt : -> Boolean [ctor rpo 1] .
+    op 0 : -> Nat [ctor rpo 20] .
+    op 1 : -> NzNat [ctor rpo 21] .
+    op _+_ : Nat Nat -> Nat [assoc comm id: 0 rpo 30] .
+    op _+_ : NzNat NzNat -> NzNat [ctor assoc comm id: 0 rpo 30] .
+    op _and_ : Boolean Boolean -> Boolean [assoc comm rpo 31] .
+    op _>_ : Nat Nat -> Boolean [rpo 32] .
+    op _.=._ : Nat Nat -> Boolean [comm rpo 33] .
+
+    vars N M : Nat .  
+    vars P : NzNat .  
+    var B : Boolean .
+
+    eq B and tt = B [variant] .
+    eq B and ff = ff [variant] .
+    eq P + N > N = tt [variant] .
+    eq N > N + M = ff [variant] .
+    eq N .=. N = tt [variant] .
+    eq N .=. (N + P) = ff [variant] .
+endfm
+
+mod QLOCK is 
+    protecting NAT-PRESBURGER .
+
+    sorts NeMSet MSet NeList List State .
+    subsorts Nat < NeList < List . 
+    subsorts Nat < NeMSet < MSet .
+
+    op mt : -> MSet [ctor rpo 11] . *** empty multiset
+    op _ _ : MSet MSet -> MSet [assoc comm id: mt rpo 41] .
+    op _ _ : NeMSet NeMSet -> NeMSet [ctor assoc comm id: mt rpo 41] .
+
+    op nil : -> List [ctor rpo 10] . *** empty list
+    op _;_ : List List -> List [assoc id: nil rpo 40] .
+    op _;_ : NeList NeList -> NeList [ctor assoc id: nil rpo 40] .
+
+    op <_|_|_|_> : MSet MSet MSet List -> State [ctor rpo 50] .
+
+    var i j : Nat . 
+    vars U W C : MSet . 
+    vars Q Q' Q'' : List .
+    var S : NeMSet .
+
+    op l2ms : List -> MSet [rpo 60] .
+    op l2ms : NeList -> NeMSet [rpo 60] .
+    eq l2ms(nil) = mt .
+    eq l2ms(i ; Q) = i l2ms(Q) .
+
+    op non-mt : MSet -> Boolean [rpo 61] .
+    eq non-mt(mt) = ff [variant] .
+    eq non-mt(S) = tt [variant] .
+
+    --- Only w2c is guarded: a waiting process at the head of the queue may
+    --- enter the critical section only when it is empty.  Mutual exclusion
+    --- is then structural (the critical set has at most one element) and the
+    --- invariant does not need the distinctness predicate set used in QLOCK.
+    rl [r2w] : < U i | W | C | Q > => < U | W i | C | Q ; i > [narrowing] .
+    crl [w2c] : < U | W i | C | i ; Q > => < U | W | C i | i ; Q >
+      if non-mt(C) = ff .
+    rl [c2r] : < U | W | C i | i ; Q > => < U i | W | C | Q > [narrowing] .
+endm

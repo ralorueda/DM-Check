@@ -1,0 +1,26 @@
+# Script to prove the QLOCK lemmas
+
+clear all .
+set module QLOCK .
+check rpo .
+
+genset GEN-LIST for List is nil ;; X:Nat ;; (X:Nat ; NL:NeList) .
+genset GEN-NELIST for NeList is X:Nat ;; (X:Nat ; NL:NeList) .
+genset GEN-NAT for Nat is 0 ;; P:NzNat .
+genset GEN-BOOL for Boolean is ff ;; tt .
+genset GEN-SET for MSet is mt ;; X:Nat ;; (X:Nat NL:NeMSet) .
+genset GEN-NESET for NeMSet is X:Nat ;; (X:Nat NL:NeMSet) .
+
+set goal l2ms(X:Nat ; L:List) = (S:MSet X:Nat) -> l2ms(L:List) = S:MSet .
+apply cas! to 0 .
+
+assert .
+
+# Auxiliary lemma: l2ms distributes over appending an element
+set goal l2ms(L:List ; X:Nat) = (X:Nat l2ms(L:List)) .
+apply gsi* to 0 on $1 .
+internalize .
+
+set goal l2ms(L:List) = S:MSet -> l2ms(L:List ; X:Nat) = (S:MSet X:Nat) .
+apply eps* to 0 .
+assert .

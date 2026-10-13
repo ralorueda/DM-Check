@@ -1,0 +1,235 @@
+***(
+Copyright 2023-2026 DM-Check team
+
+This program is free software: you can redistribute it and/or modify it under the terms 
+of the GNU General Public License as published by the Free Software Foundation, either 
+version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+)***
+
+set include BOOL off .
+
+fmod BOOL-FVP is 
+   sort iBool .
+   op False : -> iBool [ctor rpo 0] .
+   op True : -> iBool [ctor rpo 1] .
+   op _xor_ : iBool iBool -> iBool [assoc comm rpo 30] .
+   op _and_ : iBool iBool -> iBool [assoc comm rpo 31] .
+   op _or_ : iBool iBool -> iBool [assoc comm rpo 32] .
+   op _<=>_ : iBool iBool -> iBool [comm rpo 33] .
+   op not_ : iBool -> iBool [rpo 34] .
+
+   vars X Y : iBool .
+
+   eq X and True = X [variant] .
+   eq X and False = False [variant] .
+   eq X and X = X  [variant] .
+   eq X and X and Y = X and Y [variant] .   *** AC extension
+   eq X xor False = X [variant] .
+   eq X xor X = False [variant] .
+   eq X xor X xor Y = Y [variant] .         *** AC extension
+   eq not X = X xor True [variant] .
+   eq X or Y = (X and Y) xor X xor Y [variant] .
+   eq X <=> Y = True xor X xor Y [variant] .
+endfm
+
+fmod NAT-FVP is 
+    protecting BOOL-FVP .
+    sorts iNat iNzNat .
+    subsort iNzNat < iNat .
+
+    op 0 : -> iNat [ctor rpo 2] .
+    op 1 : -> iNzNat [ctor rpo 3] .
+    op _++_ : iNat iNat -> iNat [assoc comm id: 0 rpo 4] .
+    op _++_ : iNzNat iNat -> iNzNat [assoc comm id: 0 rpo 4] .
+    op _++_ : iNzNat iNzNat -> iNzNat [ctor assoc comm id: 0 rpo 4] .
+    
+endfm
+
+mod CHC is
+  protecting NAT-FVP .
+  
+  sorts Name State .
+  op a : -> Name [ctor rpo 24] .
+  op b : -> Name [ctor rpo 25] .
+  op c : -> Name [ctor rpo 26] .
+
+  sorts Binding NeMemory Memory .
+  subsort Binding < NeMemory < Memory .
+
+  sorts Exp NeProgram Program .
+  subsorts iNat iBool < Exp .
+  subsort Exp < NeProgram < Program .
+
+  op _|->_ : Name iNat -> Binding [ctor prec 40 rpo 7] .
+  op empty : -> Memory [ctor rpo 6] .
+  op _:_ : Memory Memory -> Memory [assoc comm id: empty prec 42 rpo 5] .
+  op _:_ : NeMemory NeMemory -> NeMemory [ctor assoc comm id: empty prec 42 rpo 5] .
+
+  op skip : -> Program [ctor rpo 8] .
+  op _;_ : Program Program -> Program [assoc id: skip prec 50 rpo 9] .
+  op _;_ : NeProgram NeProgram -> NeProgram [ctor assoc id: skip prec 50 rpo 9] .
+  op assignTo : Name -> NeProgram [ctor rpo 10] .
+  op _:=_ : Name Exp -> NeProgram [ctor prec 40 rpo 11] .
+  op addL : iNat -> NeProgram [ctor rpo 12] .
+  op addR : Exp -> NeProgram [ctor rpo 13] .
+  op _+_ : Exp Exp -> Exp [ctor prec 33 rpo 14] .
+  op gtL : iNat -> NeProgram [ctor rpo 15] .
+  op gtR : Exp -> NeProgram [ctor rpo 16] .
+  op _>_ : Exp Exp -> Exp [ctor prec 35 rpo 17] .
+  op predK : -> NeProgram [ctor rpo 18] .
+  op pred : Exp -> Exp [ctor rpo 19] .
+  op whileK : Exp Program -> NeProgram [ctor rpo 20] .
+  op while_{_} : Exp Program -> NeProgram [ctor rpo 21] .
+  op iNat_ : Name -> NeProgram [ctor rpo 22] .
+  op val_ : Name -> Exp [ctor rpo 23] .
+
+  --- Evaluation frames
+  op _|_ : Program Memory -> State [ctor prec 60 rpo 35] .
+
+  --- New Variable
+  eq (iNat N:Name) | empty
+  =              skip | (N:Name |-> 0) .
+
+  eq (iNat N:Name) ; K:NeProgram | empty
+  =                  K:NeProgram | (N:Name |-> 0) .
+
+  eq (iNat N:Name) | M:NeMemory
+  =              skip | M:NeMemory : (N:Name |-> 0) .
+
+  eq (iNat N:Name) ; K:NeProgram | M:NeMemory
+  =                  K:NeProgram | M:NeMemory : (N:Name |-> 0) .
+
+  --- Assignment
+  eq (N:Name := E:Exp) | M:Memory
+  =  E:Exp ; assignTo(N:Name) | M:Memory .
+
+  eq (N:Name := E:Exp) ; K:NeProgram | M:Memory
+  =  E:Exp ; assignTo(N:Name) ; K:NeProgram | M:Memory .
+
+  eq V:iNat ; assignTo(X:Name) | (X:Name |-> N:iNat)
+  =  skip | (X:Name |-> V:iNat) .
+
+  eq V:iNat ; assignTo(X:Name) ; K:NeProgram | (X:Name |-> N:iNat)
+  =  K:NeProgram | (X:Name |-> V:iNat) .
+
+  eq V:iNat ; assignTo(X:Name)
+     | (X:Name |-> N:iNat) : M:NeMemory
+  =  skip | (X:Name |-> V:iNat) : M:NeMemory .
+
+  eq V:iNat ; assignTo(X:Name) ; K:NeProgram
+     | (X:Name |-> N:iNat) : M:NeMemory
+  =  K:NeProgram | (X:Name |-> V:iNat) : M:NeMemory .
+
+  --- Variable
+  eq val X:Name | (X:Name |-> V:iNat)
+  =  V:iNat | (X:Name |-> V:iNat) .
+
+  eq val X:Name ; K:NeProgram | (X:Name |-> V:iNat)
+  =  V:iNat ; K:NeProgram | (X:Name |-> V:iNat) .
+
+  eq val X:Name | M:NeMemory : (X:Name |-> V:iNat)
+  =  V:iNat | M:NeMemory : (X:Name |-> V:iNat) .
+
+  eq val X:Name ; K:NeProgram | M:NeMemory : (X:Name |-> V:iNat)
+  =  V:iNat ; K:NeProgram | M:NeMemory : (X:Name |-> V:iNat) .
+
+  --- Greater than
+  eq (E1:Exp > E2:Exp) | M:Memory
+  =  E1:Exp ; gtR(E2:Exp) | M:Memory .
+
+  eq (E1:Exp > E2:Exp) ; K:NeProgram | M:Memory
+  =  E1:Exp ; gtR(E2:Exp) ; K:NeProgram | M:Memory .
+
+  eq N1:iNat ; gtR(E2:Exp) | M:Memory
+  =  E2:Exp ; gtL(N1:iNat) | M:Memory .
+
+  eq N1:iNat ; gtR(E2:Exp) ; K:NeProgram | M:Memory
+  =  E2:Exp ; gtL(N1:iNat) ; K:NeProgram | M:Memory .
+
+  eq X:iNat ; gtL(X:iNat ++ Y:iNat ++ 1) | M:Memory
+  =  True | M:Memory .
+
+  eq X:iNat ; gtL(X:iNat ++ Y:iNat ++ 1) ; K:NeProgram | M:Memory
+  =  True ; K:NeProgram | M:Memory .
+
+  eq (X:iNat ++ Y:iNat) ; gtL(X:iNat) | M:Memory
+  =  False | M:Memory .
+
+  eq (X:iNat ++ Y:iNat) ; gtL(X:iNat) ; K:NeProgram | M:Memory
+  =  False ; K:NeProgram | M:Memory .
+
+  --- Addition
+  eq (E1:Exp + E2:Exp) | M:Memory
+  =  E1:Exp ; addR(E2:Exp) | M:Memory .
+
+  eq (E1:Exp + E2:Exp) ; K:NeProgram | M:Memory
+  =  E1:Exp ; addR(E2:Exp) ; K:NeProgram | M:Memory .
+
+  eq N1:iNat ; addR(E2:Exp) | M:Memory
+  =  E2:Exp ; addL(N1:iNat) | M:Memory .
+
+  eq N1:iNat ; addR(E2:Exp) ; K:NeProgram | M:Memory
+  =  E2:Exp ; addL(N1:iNat) ; K:NeProgram | M:Memory .
+
+  eq 0 ; addL(N1:iNat) | M:Memory
+  =  N1:iNat | M:Memory .
+
+  eq 0 ; addL(N1:iNat) ; K:NeProgram | M:Memory
+  =  N1:iNat ; K:NeProgram | M:Memory .
+
+  eq N2:iNzNat ; addL(0) | M:Memory
+  =  N2:iNzNat | M:Memory .
+
+  eq N2:iNzNat ; addL(0) ; K:NeProgram | M:Memory
+  =  N2:iNzNat ; K:NeProgram | M:Memory .
+
+  eq N2:iNzNat ; addL(N1:iNzNat) | M:Memory
+  =  (N1:iNzNat ++ N2:iNzNat) | M:Memory .
+
+  eq N2:iNzNat ; addL(N1:iNzNat) ; K:NeProgram | M:Memory
+  =  (N1:iNzNat ++ N2:iNzNat) ; K:NeProgram | M:Memory .
+
+  --- Predecessor
+  eq pred(Ex:Exp) | M:Memory
+  =  Ex:Exp ; predK | M:Memory .
+
+  eq pred(Ex:Exp) ; K:NeProgram | M:Memory
+  =  Ex:Exp ; predK ; K:NeProgram | M:Memory .
+
+  eq 0 ; predK | M:Memory
+  =  0 | M:Memory .
+
+  eq 0 ; predK ; K:NeProgram | M:Memory
+  =  0 ; K:NeProgram | M:Memory .
+
+  eq (N:iNat ++ 1) ; predK | M:Memory
+  =  N:iNat | M:Memory .
+
+  eq (N:iNat ++ 1) ; predK ; K:NeProgram | M:Memory
+  =  N:iNat ; K:NeProgram | M:Memory .
+
+  --- While
+  eq (while E:Exp {B:Program}) | M:Memory
+  =  E:Exp ; whileK(E:Exp, B:Program) | M:Memory .
+
+  eq (while E:Exp {B:Program}) ; K:NeProgram          | M:Memory
+  =  E:Exp ; whileK(E:Exp, B:Program) ; K:NeProgram   | M:Memory .
+
+  rl True ; whileK(E:Exp, B:Program) | M:Memory
+  => B:Program ; (while E:Exp {B:Program}) | M:Memory [narrowing] .
+
+  rl True ; whileK(E:Exp, B:Program) ; K:NeProgram      | M:Memory
+  => B:Program ; (while E:Exp {B:Program}) ; K:NeProgram | M:Memory [narrowing] .
+  
+  rl False ; whileK(E:Exp, B:Program) | M:Memory
+  =>                              skip | M:Memory [narrowing] .
+
+  rl False ; whileK(E:Exp, B:Program) ; K:NeProgram | M:Memory
+  =>                                  K:NeProgram | M:Memory [narrowing] .
+  
+endm
+
+set include BOOL on .

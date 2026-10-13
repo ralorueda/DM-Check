@@ -1,0 +1,52 @@
+# Script to prove the BAKERY proof obligations
+
+clear all .
+set module BAKERY-PROP .
+check rpo .
+
+genset iNatG for iNat is 0 ;; NN:iNzNat .
+genset iNzNatG for iNzNat is 1 ;; (1 + NN:iNzNat) .
+
+set goal e(N:iNat), M:MSet = null -> false .
+apply ufree* to 0 .
+internalize .
+
+set goal e(N:iNat), M1:MSet = e(N:iNat), M2:MSet -> M1:MSet = M2:MSet .
+apply ufree* to 0 .
+internalize .
+
+set goal (e($34:iNat), tickets($36:ProcWaitSet)) = e($34:iNat + #NN:iNzNat), i( $34:iNat, $34:iNat + #NN:iNzNat) -> tickets($36:ProcWaitSet ; [idle]) = i(1 + $34:iNat, #NN:iNzNat + 1 + $34:iNat) .
+apply eps* to 0 .
+apply le* to 0.1 with ((e($2:iNat + $1:iNzNat), i($2:iNat, $1:iNzNat + $2:iNat)) => (e($2:iNat), i(1 + $2:iNat, $2:iNat + $1:iNzNat + 1))) .
+    apply gsi* to 0.1.1 on $4 .
+apply eq* to 0.1.2 with (e($5:iNat + $4:iNzNat), i($5:iNat, $5:iNat + $4:iNzNat) => e($5:iNat), i(1 + $5:iNat, 1 + $5:iNat + $4:iNzNat)) .
+assert .
+
+set goal (e($34:iNat), tickets($36:ProcWaitSet)) = e($34:iNat) -> tickets( $36:ProcWaitSet ; [idle]) = i(1 + $34:iNat, 0 + 1 + $34:iNat) .
+apply eps* to 0 .
+assert .
+
+set goal (e($37:iNat), tickets($38:ProcWaitSet)) = null -> false .
+apply le* to 0 with (e(N:iNat), M:MSet = null -> false) .
+assert .
+
+set goal ((e(N:iNat), U:MSet) = i(1 + N:iNat, (N:iNat + K:iNzNat))) -> false .
+apply cut! to 0 with (($2:iNat in ($3:MSet, e($2:iNat))) = ($2:iNat in i(1 + $2:iNat, $2:iNat + $1:iNzNat))) .
+apply icc! to 0.1.1 .
+apply le! to 0.2.1 with (N:iNat in i(1 + N:iNat,(1 + N:iNat + K:iNat))) = False .
+apply cas! to 0.2.1.1 on $4 .
+apply gsi! to 0.2.1.1.1 on $6 .
+apply cas! to 0.2.1.2 on $1 .
+internalize .
+
+set goal tickets(($39:ProcWaitSet ; [wait($37:iNat)]) ; [wait($37:iNat)]) = i( $37:iNat, $38:iNat + $37:iNat) -> false .
+apply eps* to 0 .
+apply le* to 0.1 with ((e($2:iNat), e($2:iNat), MS:MSet) = i($2:iNat, $2:iNat + $1:iNat)) -> false .
+apply cas* to 0.1.1 on $4 .
+apply cut! to 0.1.1.1 with (($6:MSet, e($5:iNat)) = i($5:iNat + 1, $5:iNat + $7:iNzNat)) .
+apply le! to 0.1.1.1.1 with (i($5:iNat, $5:iNat + $7:iNzNat) => (e($5:iNat), i(1 + $5:iNat, $5:iNat + $7:iNzNat))) .
+    apply gsi* to 0.1.1.1.1.1 on $9 .
+    apply cas* to 0.1.1.1.1.1.2.1 on $10 .
+apply eq* to 0.1.1.1.1.2 with (i($8:iNat, $8:iNat + $9:iNzNat) => e($8:iNat), i(1 + $8:iNat, $8:iNat + $9:iNzNat)) .
+apply le* to 0.1.1.1.2 with (($6:MSet, e($5:iNat)) = i(1 + $5:iNat, $5:iNat + $7:iNzNat) -> false) .
+assert .

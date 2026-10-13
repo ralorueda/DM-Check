@@ -1,0 +1,142 @@
+***(
+Copyright 2023-2026 DM-Check team
+
+This program is free software: you can redistribute it and/or modify it under the terms 
+of the GNU General Public License as published by the Free Software Foundation, either 
+version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+)***
+
+set include BOOL off .
+
+fmod IBOOL is
+  sort iBool .
+  op True : -> iBool [ctor rpo 0]  .
+  op False : -> iBool [ctor rpo 1]  .
+endfm
+
+
+fmod INAT is
+  protecting IBOOL .
+  sort iNat iNzNat .
+  subsort iNzNat < iNat .
+  op 0 : -> iNat [ctor rpo 2]  .
+  op 1 : -> iNzNat [ctor rpo 3]  .
+  op _+_ : iNat iNat -> iNat [rpo 4 comm assoc id: 0] .
+  op _+_ : iNzNat iNat -> iNzNat [ditto] .
+  op _+_ : iNzNat iNzNat -> iNzNat [ctor ditto] .
+
+  vars N M : iNat .
+
+  op _<=_ : iNat iNat -> iBool [rpo 5]  .
+  eq N <= N + M = True [variant] .
+  eq 1 + N + M <= M = False [variant] .
+
+  op _~_ : iNat iNat -> iBool [rpo 6 comm] .
+  eq N ~ N = True [variant] .
+  eq 1 + N + M ~ M = False [variant] .
+endfm 
+
+
+fmod BAKERY-CONF is 
+  protecting INAT .
+
+  sorts ModeIdle ModeWait ModeCrit Mode .
+  subsorts ModeIdle ModeWait ModeCrit < Mode .
+  op idle : -> ModeIdle [ctor rpo 10]  .
+  op wait : iNat -> ModeWait [ctor rpo 11]  .
+  op crit : iNat -> ModeCrit [ctor rpo 12]  .
+
+  sorts ProcIdle ProcWait Proc .  
+  subsorts ProcIdle < ProcWait < Proc .
+  op [_] : ModeIdle -> ProcIdle [ctor rpo 14]  .
+  op [_] : ModeWait -> ProcWait [ctor rpo 14]  .
+  op [_] : Mode -> Proc [ctor rpo 14]  .
+
+  sorts ProcIdleSet NEProcIdleSet ProcWaitSet NEProcWaitSet ProcSet NEProcSet .  
+  subsorts ProcIdle < NEProcIdleSet < ProcIdleSet .
+  subsorts ProcWait < NEProcWaitSet < ProcWaitSet .
+  subsorts Proc < NEProcSet < ProcSet .
+  subsorts ProcIdleSet < ProcWaitSet < ProcSet .
+  subsorts NEProcIdleSet < NEProcWaitSet < NEProcSet .
+
+  op none : -> ProcIdleSet  [ctor rpo 13]  .
+  op _;_ : ProcIdleSet ProcIdleSet -> ProcIdleSet [rpo 17 assoc comm id: none] .
+  op _;_ : NEProcIdleSet NEProcIdleSet -> NEProcIdleSet [ctor ditto] .
+  op _;_ : ProcWaitSet ProcWaitSet -> ProcWaitSet [ditto] .
+  op _;_ : NEProcWaitSet NEProcWaitSet -> NEProcWaitSet [ctor ditto] .
+  op _;_ : ProcSet ProcSet -> ProcSet [ ditto] .
+  op _;_ : NEProcSet NEProcSet -> NEProcSet [ctor ditto] .
+
+  sort Conf .
+  op _|_|_ : iNat iNat ProcSet -> Conf [ctor rpo 18]  .
+endfm
+
+
+mod BAKERY is 
+  protecting BAKERY-CONF .
+
+  var PS : ProcSet .  
+  vars N M : iNat . 
+
+  rl [wake] : N | M | [idle] ; PS    => 1 + N |     M | [wait(N)] ; PS [narrowing] .
+  rl [crit] : N | M | [wait(M)] ; PS =>     N |     M | [crit(M)] ; PS [narrowing] .
+  rl [exit] : N | M | [crit(M)] ; PS =>     N | 1 + M | [idle] ; PS [narrowing] .
+endm
+
+
+fmod MSET is
+  protecting INAT .
+  sorts MSet NeMSet .
+  subsort NeMSet < MSet .
+  op e : iNat -> NeMSet [ctor rpo 21]  .
+  op null : -> MSet [ctor rpo 20]  .
+  op _,_ : MSet MSet -> MSet [rpo 22 assoc comm id: null] .
+  op _,_ : NeMSet MSet -> NeMSet [ditto] .
+  op _,_ : NeMSet NeMSet -> NeMSet [ctor ditto] .
+
+  vars N M : iNat .
+  var MS : MSet .
+
+  op _in_ : iNat MSet -> iBool [rpo 22]  .
+  eq M in (e(M), MS) = True .
+  eq M in null = False .
+  eq M in (e(1 + N + M), MS) = M in MS .
+  eq 1 + N + M in (e(M), MS) = 1 + N + M in MS .
+endfm
+
+
+fmod INTERVALS is 
+  protecting MSET .
+  op i : iNat iNat -> MSet [rpo 23] .
+
+  vars N M : iNat .
+
+  eq i(M + N,N) = null .
+  eq i(N,(1 + N + M)) = i(N,(N + M)), e(N + M) .
+endfm
+
+
+fmod BAKERY-PROP is 
+  protecting BAKERY-CONF .  
+  protecting INTERVALS .
+
+  vars N M : iNat . 
+  var MS : MSet .
+  var PS : ProcSet .
+  var IS : ProcIdleSet .
+
+  op tickets : ProcSet -> MSet [rpo 32]  .
+  eq tickets(IS) = null .
+  eq tickets([idle] ; PS) = tickets(PS) .
+  eq tickets([wait(N)] ; PS) = e(N), tickets(PS) .
+  eq tickets([crit(N)] ; PS) = e(N), tickets(PS) .
+endfm
+
+
+mod BAKERY-AUX is 
+  protecting BAKERY .  
+  protecting BAKERY-PROP . 
+endm

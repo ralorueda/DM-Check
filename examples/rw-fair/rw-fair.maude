@@ -1,0 +1,47 @@
+***(
+Copyright 2023-2026 DM-Check team
+
+This program is free software: you can redistribute it and/or modify it under the terms 
+of the GNU General Public License as published by the Free Software Foundation, either 
+version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+)***
+
+set include BOOL off .
+
+mod R&W-FAIR is
+  sorts NzNat Nat Conf .
+  subsorts NzNat < Nat .
+  op 0 : -> Nat [ctor rpo 1] .
+  op 1 : -> NzNat [ctor rpo 2] .
+  op _+_ : Nat Nat -> Nat [assoc comm id: 0 rpo 3] .
+  op _+_ : NzNat Nat -> NzNat [assoc comm id: 0 rpo 3] .
+  op _+_ : NzNat NzNat -> NzNat [ctor assoc comm id: 0 rpo 3] .
+  op [_]<_,_>[_|_] : Nat Nat Nat Nat Nat -> Conf [ctor rpo 4] .
+  op init : NzNat -> Conf [rpo 5] .
+ 
+  vars N M K I J L : Nat .  var N' M' : NzNat .
+
+  rl [w-in] : [N]< 0,0 >[ 0 | N] => [N]< 0,1 >[0 | N] [narrowing] .
+  rl [w-out] : [N]< 0,1 >[ 0 | N] => [N]< 0,0 >[N | 0] [narrowing] .
+  rl [r-in] : [K + N + M + 1]< N,0 >[M + 1 | K] => [K + N + M + 1]< N + 1,0 >[M | K] [narrowing] .
+  rl [r-out] : [K + N + M + 1]< N + 1,0 >[M | K] => [K + N + M + 1]< N,0 >[M | K + 1] [narrowing] .
+endm
+
+mod R&W-ENABLED is 
+  protecting  R&W-FAIR .
+  
+  sort Pred .
+  op tt : -> Pred [ctor rpo 0] .
+  
+  vars N M K : Nat . 
+  
+  op enabled : Conf -> Pred [rpo 7] .
+  eq enabled([N]< 0,0 >[ 0 | N]) = tt .
+  eq enabled([N]< 0,1 >[ 0 | N]) = tt .
+  eq enabled([K + N + M + 1]< N,0 >[M + 1 | K]) = tt .
+  eq enabled([K + N + M + 1]< N + 1,0 >[M | K]) = tt .
+endm
+

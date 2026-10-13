@@ -1,0 +1,216 @@
+***(
+Copyright 2023-2026 DM-Check team
+
+This program is free software: you can redistribute it and/or modify it under the terms 
+of the GNU General Public License as published by the Free Software Foundation, either 
+version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+)***
+
+set include BOOL off .
+
+--- Booleans
+fmod IBOOL is
+  sort iBool .
+  op True : -> iBool [ctor rpo 0] .
+  op False : -> iBool [ctor rpo 1] .
+endfm
+
+---- Natural numbers
+fmod INAT is
+  pr IBOOL .
+  sort iNat .
+  op 0 : -> iNat [ctor rpo 2] .
+  op 1 : -> iNat [ctor rpo 3] .
+  op _+_ : iNat iNat -> iNat [ctor comm assoc id: 0 rpo 4] .
+endfm
+
+--- bits
+fmod BIT is
+  pr IBOOL .
+  sorts Bit OnBit OffBit .
+  subsorts OnBit OffBit < Bit .
+  op on : -> OnBit [ctor rpo 6] .
+  op off : -> OffBit [ctor rpo 7] .
+endfm
+
+--- list of naturals
+fmod INAT-LIST is
+  pr INAT .
+  sort iList .
+  subsort iNat < iList .
+  op nil : -> iList [ctor rpo 10] .
+  op _::_ : iList iList -> iList [ctor assoc id: nil prec 61 rpo 11] .
+endfm
+
+--- queue of bits
+fmod BIT-QUEUE is
+  pr BIT .
+  sorts BQue EmptyBQue OnBQue OffBQue .
+  subsort Bit EmptyBQue < BQue .
+  subsorts OnBit EmptyBQue < OnBQue < BQue .
+  subsorts OffBit EmptyBQue < OffBQue < BQue .
+  op nil : -> EmptyBQue [ctor rpo 12] .
+  op __ : BQue BQue -> BQue [ctor assoc id: nil prec 61 rpo 13] .
+  op __ : EmptyBQue EmptyBQue -> EmptyBQue [ctor ditto] .
+  op __ : OnBQue OnBQue -> OnBQue [ctor ditto] .
+  op __ : OffBQue OffBQue -> OffBQue [ctor ditto] .
+endfm
+
+--- packets: pair of bit and nat
+fmod BIT-PACKET is
+  pr BIT .
+  pr INAT .
+  sorts BitPacket OnBitPacket OffBitPacket .
+  subsorts OnBitPacket OffBitPacket < BitPacket .
+  op ((_,_)) : Bit iNat -> BitPacket [ctor rpo 14] .
+  op ((_,_)) : OnBit iNat -> OnBitPacket [ctor rpo 14] .
+  op ((_,_)) : OffBit iNat -> OffBitPacket [ctor rpo 14] .
+endfm
+
+--- queue of pairs of bits and nats
+fmod BIT-PACKET-QUEUE is
+  pr BIT-PACKET .
+  sort BPQue EmptyBPQue OnBPQue OffBPQue .
+  subsort BitPacket EmptyBPQue < BPQue .
+  subsort OnBitPacket EmptyBPQue < OnBPQue < BPQue .
+  subsort OffBitPacket EmptyBPQue < OffBPQue < BPQue .
+  op nil : -> EmptyBPQue [ctor rpo 16] .
+  op __ : BPQue BPQue -> BPQue [ctor assoc id: nil prec 61 rpo 17] .
+  op __ : EmptyBPQue EmptyBPQue -> EmptyBPQue [ctor ditto] .
+  op __ : OnBPQue OnBPQue -> OnBPQue [ctor ditto] .
+  op __ : OffBPQue OffBPQue -> OffBPQue [ctor ditto] .
+endfm
+
+--- state syntax
+fmod ABP-STATE is
+  pr BIT-PACKET-QUEUE .
+  pr BIT-QUEUE .
+  pr INAT-LIST .
+
+  sort Sys .
+  op _:_>_||_<_:_ : iNat Bit BPQue BQue Bit iList -> Sys [ctor rpo 18] .
+endfm
+
+--- transitions
+mod ABP is
+  pr ABP-STATE .
+
+  vars B B' B'' : Bit .   var BP : BitPacket .
+  var BQ : BQue .         var BPQ : BPQue .
+  var N N' : iNat .       var NL : iList .
+
+  rl [send-1] :
+     N : B > BPQ        || BQ < B' : NL
+  => N : B > BPQ (B, N) || BQ < B' : NL [narrowing] .
+
+  rl [recv-1a] :
+     N : B > BPQ || B BQ < B' : NL
+  => N : B > BPQ ||   BQ < B' : NL [narrowing] .
+
+  rl [recv-1b] :
+     N   : on  > BPQ || off BQ < B' : NL
+  => 1 + N : off > BPQ ||     BQ < B' : NL [narrowing] .
+
+  rl [recv-1c] :
+     N   : off > BPQ || on BQ < B' : NL
+  => 1 + N : on  > BPQ ||    BQ < B' : NL [narrowing] .
+
+  rl [send-2] :
+     N : B > BPQ || BQ    < B' : NL
+  => N : B > BPQ || BQ B' < B' : NL [narrowing] .
+
+  rl [recv-2a] :
+     N : B > (on,N') BPQ || BQ < on  : NL
+  => N : B > BPQ         || BQ < off : (N' :: NL) [narrowing] .
+
+  rl [recv-2b] :
+     N : B > (off,N') BPQ || BQ < off : NL
+  => N : B > BPQ          || BQ < on  : (N' :: NL) [narrowing] .
+
+  rl [recv-2c] :
+     N : B > (off,N') BPQ || BQ < on : NL
+  => N : B > BPQ          || BQ < on : NL [narrowing] .
+
+  rl [recv-2d] :
+     N : B > (on,N') BPQ || BQ < off : NL
+  => N : B > BPQ         || BQ < off : NL [narrowing] .
+
+  rl [drop-1a] :
+     N : B > (off,N') BPQ || BQ < B' : NL
+  => N : B > BPQ          || BQ < B' : NL [narrowing] .
+
+  rl [drop-1b] :
+     N : B > (on,N') BPQ || BQ < B' : NL
+  => N : B > BPQ         || BQ < B' : NL [narrowing] .
+
+  rl [dup-1] :
+     N : B > BP BPQ    || BQ < B' : NL
+  => N : B > BP BP BPQ || BQ < B' : NL [narrowing] .
+
+  rl [drop-2a] :
+     N : B > BPQ || off BQ < B' : NL
+  => N : B > BPQ || BQ     < B' : NL [narrowing] .
+
+  rl [drop-2b] :
+     N : B > BPQ || on BQ < B' : NL
+  => N : B > BPQ ||    BQ < B' : NL [narrowing] .
+
+  rl [dup-2] :
+     N : B > BPQ || B'' BQ     < B' : NL
+  => N : B > BPQ || B'' B'' BQ < B' : NL [narrowing] .
+endm
+
+fmod ABP-PRED is
+  pr ABP-STATE .
+
+  var B : Bit .           var BP : BitPacket .  
+  vars N N' : iNat .      var NS : iSet .
+  vars BPQ BPQ' : BPQue .
+
+--- equality for iNat
+  op _~_ : iNat iNat -> iBool [comm rpo 5] .
+  eq N ~ N = True .
+  eq N ~ 1 + N' + N = False .
+
+--- multiset of naturals
+  sort iSet .
+  subsort iNat < iSet .
+  op none : -> iSet [ctor rpo 19] .
+  op _;_ : iSet iSet -> iSet [ctor comm assoc id: none prec 61 rpo 20] .
+  eq N ; N = N .
+
+  ----------------------------------------------------
+  --- auxiliary functions for the queue of packets ---
+  ----------------------------------------------------
+  op getN : BitPacket -> iNat [rpo 15] .
+  eq getN((B,N)) = N .
+
+  op getNs : BPQue -> iSet [rpo 22] .
+  eq getNs(nil) = none .
+  eq getNs(BPQ BP BPQ') = getN(BP) ; getNs(BPQ BPQ') .
+
+
+  op aP : BPQue iNat -> iBool [rpo 23] .
+  eq aP(BPQ, N) = allN(getNs(BPQ), N) .
+
+  op allN : iSet iNat -> iBool [rpo 21] .
+  eq allN(none, N) = True .
+  eq allN(N  ; NS, N) = allN(NS, N) .
+ ceq allN(N' ; NS, N) = False if (N' ~ N) = False .
+
+  -------------------------------------  
+  --- auxiliary generation of lists ---
+  -------------------------------------
+  op gen : iNat -> iList [rpo 24] .
+  eq gen(0) = 0 .
+  eq gen(1 + N) = (1 + N) :: gen(N) .
+endfm
+
+---- main module
+mod ABP-PRED-AUX is
+  pr ABP .
+  pr ABP-PRED .
+endm

@@ -1,0 +1,24 @@
+# Script to prove the Token Ring proof obligations
+
+clear all .
+set module TOKEN-RING .
+
+genset GNAT for Nat is 0 ;; 1 ;; 1 + P:NzNat .
+genset GNZNAT for NzNat is 1 ;; 1 + P:NzNat .
+
+# Obligation 1 (empty 7): a single process cannot be the whole ring [q]
+set goal N:Nat = [Q:NzNat] -> false .
+apply cas* to 0 on $2 .
+apply va* to 0.2.1 on [$3:NzNat] .
+assert .
+
+# Auxiliary lemma: [n] contains no number greater than n
+set goal [N:Nat] = (S:NMSet, N:Nat + P:NzNat) -> false .
+apply gsi* to 0 on $1 .
+apply va* to 0.3.1 on [$4] .
+internalize .
+
+# Obligation 2 (empty 11)
+set goal [Q:NzNat] = (S:NMSet, P:NzNat + Q:NzNat) -> false .
+apply le* to 0 with ([N:Nat] = (S:NMSet, N:Nat + P:NzNat) -> false) .
+assert .

@@ -1,0 +1,13 @@
+# Script to prove the enabledness obligation of the fair R&W protocol
+
+clear all .
+
+set module R&W-ENABLED .
+
+genset GNAT for Nat is 0 ;; 1 ;; 1 + N:NzNat .
+genset GNZNAT for NzNat is 1 ;; 1 + N:NzNat .
+
+set goal (enabled([$11:Nat + $10:Nat + $9:Nat + 1]< $11:Nat,0 >[$10:Nat | $9:Nat + 1]) = tt) .
+apply cas! to 0 on $1:Nat .
+apply cas! to 0.1 on $2:Nat .
+assert .

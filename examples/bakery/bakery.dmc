@@ -1,0 +1,45 @@
+--- Select the module
+set module BAKERY-AUX .
+
+--- Generate the invariant
+generate ind-invariant \
+    (N:iNat | N:iNat | IS:ProcIdleSet) | true . 
+
+generate next level .
+
+--- Generalize pattern
+generalize 3 to \
+      (M:iNat + N:iNat | N:iNat | WS:ProcWaitSet) | \
+             (tickets(WS:ProcWaitSet) = i(N:iNat, M:iNat + N:iNat)) .
+
+--- Keep generating invariant
+generate next level .
+generate next level .
+
+--- Auxiliary commands
+empty 12 .
+
+case to 11 on $25:iNat with 0 ;; 1 ;; (1 + #N:iNzNat) .
+
+empty 13 .
+lemma 14 .
+lemma 15 .
+
+--- In each reachable state, the ticket numbers range from the second counter to the first counter 
+check ($9:iNat + $10:iNat | $10:iNat | $11:ProcWaitSet) | \
+        tickets($11:ProcWaitSet) = i($10:iNat, $9:iNat + $10:iNat) \/ \
+      ($20:iNat + $21:iNat | $21:iNat | $19:ProcWaitSet ; [crit($21:iNat)]) | \
+        tickets($19:ProcWaitSet ; [wait($21:iNat)]) = \
+        i($21:iNat, $20:iNat + $21:iNat) \
+subsumed by (M:iNat + N:iNat | N:iNat | PS:ProcSet) | \
+        tickets(PS:ProcSet) = i(N:iNat, N:iNat + M:iNat) .
+
+--- All states reachable from the initial pattern satisfy the mutual exclusion property
+intersect \
+      ($9:iNat + $10:iNat | $10:iNat | $11:ProcWaitSet) | \
+        tickets($11:ProcWaitSet) = i($10:iNat, $9:iNat + $10:iNat) \/ \
+      ($20:iNat + $21:iNat | $21:iNat | $19:ProcWaitSet ; [crit($21:iNat)]) | \
+        tickets($19:ProcWaitSet ; [wait($21:iNat)]) = \
+        i($21:iNat, $20:iNat + $21:iNat) \
+with \
+      (M:iNat | N:iNat | [crit(K:iNat)] ; [crit(L:iNat)] ; PS:ProcSet) | true .

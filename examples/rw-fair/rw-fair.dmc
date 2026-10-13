@@ -1,0 +1,64 @@
+***(
+Copyright 2023-2026 DM-Check team
+
+This program is free software: you can redistribute it and/or modify it under the terms 
+of the GNU General Public License as published by the Free Software Foundation, either 
+version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+)***
+
+--- Select the module
+set module R&W-FAIR .
+
+--- Check the invariant
+check invariant \
+     ([N:Nat + M:Nat + K:Nat + 1]< N:Nat,0 >[ M:Nat | K:Nat + 1]) | true \
+  \/ ([N:Nat + 1]< 0,1 >[0 | N:Nat + 1]) | true \
+  \/ ([N:Nat + M:Nat + 1 + K:Nat]< N:Nat,0 >[M:Nat + 1 | K:Nat]) | true \
+  \/ ([N:Nat + 1 + M:Nat + K:Nat]< N:Nat + 1,0 >[M:Nat | K:Nat]) | true .
+
+--- Check if the inductive invariant subsumes the initial pattern
+check \
+       ([N:Nat + M:Nat + K:Nat + 1]< N:Nat,0 >[ M:Nat | K:Nat + 1]) | true \
+  subsumed by \
+       ([N:Nat + M:Nat + K:Nat + 1]< N:Nat,0 >[ M:Nat | K:Nat + 1]) | true \
+    \/ ([N:Nat + 1]< 0,1 >[0 | N:Nat + 1]) | true \
+    \/ ([N:Nat + M:Nat + 1 + K:Nat]< N:Nat,0 >[M:Nat + 1 | K:Nat]) | true \
+    \/ ([N:Nat + 1 + M:Nat + K:Nat]< N:Nat + 1,0 >[M:Nat | K:Nat]) | true .
+
+--- Check if the initial state is subsumed by the LHS of the rules (deadlock freedom)
+check \
+       ([N:Nat + M:Nat + K:Nat + 1]< N:Nat,0 >[ M:Nat | K:Nat + 1]) | true \
+    \/ ([N:Nat + 1]< 0,1 >[0 | N:Nat + 1]) | true \
+    \/ ([N:Nat + M:Nat + 1 + K:Nat]< N:Nat,0 >[M:Nat + 1 | K:Nat]) | true \
+    \/ ([N:Nat + 1 + M:Nat + K:Nat]< N:Nat + 1,0 >[M:Nat | K:Nat]) | true \
+  subsumed by \
+       ([N:Nat]< 0,0 >[0 | N:Nat]) | true \
+    \/ ([N:Nat]< 0,1 >[0 | N:Nat]) | true \
+    \/ ([K:Nat + N:Nat + M:Nat + 1]< N:Nat,0 >[M:Nat  + 1 | K:Nat]) | true \
+    \/ ([K:Nat + N:Nat + M:Nat + 1]< N:Nat + 1,0 >[M:Nat | K:Nat]) | true .
+
+case to 5 on $10:Nat with 0 ;; 1 ;; 1 + N:NzNat .
+case to 6 on $12:Nat with 0 ;; 1 ;; 1 + N:NzNat .
+
+--- Negatively prove mutex
+intersect \
+     ([N:Nat + M:Nat + K:Nat + 1]< N:Nat,0 >[ M:Nat | K:Nat + 1]) | true \
+  \/ ([N:Nat + 1]< 0,1 >[0 | N:Nat + 1]) | true \
+  \/ ([N:Nat + M:Nat + 1 + K:Nat]< N:Nat,0 >[M:Nat + 1 | K:Nat]) | true \
+  \/ ([N:Nat + 1 + M:Nat + K:Nat]< N:Nat + 1,0 >[M:Nat | K:Nat]) | true \
+ with \
+   ([ N:Nat + 1 + M:Nat + 1 + K:Nat + L:Nat ]  \
+   < N:Nat + 1, M:Nat + 1 >[ L:Nat | K:Nat ]) | true .
+
+--- Negatively prove one-writers
+intersect \
+     ([N:Nat + M:Nat + K:Nat + 1]< N:Nat,0 >[ M:Nat | K:Nat + 1]) | true \
+  \/ ([N:Nat + 1]< 0,1 >[0 | N:Nat + 1]) | true \
+  \/ ([N:Nat + M:Nat + 1 + K:Nat]< N:Nat,0 >[M:Nat + 1 | K:Nat]) | true \
+  \/ ([N:Nat + 1 + M:Nat + K:Nat]< N:Nat + 1,0 >[M:Nat | K:Nat]) | true \
+ with \
+   ([ N:Nat + 1 + M:Nat + 1 + K:Nat + L:Nat ] \
+   < N:Nat, M:Nat + 1 + 1 >[ L:Nat | K:Nat ]) | true .

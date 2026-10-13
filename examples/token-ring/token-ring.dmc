@@ -1,0 +1,50 @@
+***(
+Copyright 2023-2026 DM-Check team
+
+This program is free software: you can redistribute it and/or modify it under the terms 
+of the GNU General Public License as published by the Free Software Foundation, either 
+version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+)***
+
+--- Select the module
+set module TOKEN-RING .
+
+--- Check the invariant
+gen ind-invariant \
+      (< tok(n:Nat),S:NMSet >{q:NzNat}) | n:Nat in S:NMSet = True /\  S:NMSet = [q:NzNat] \/ \
+      (< crit(n:Nat),S:NMSet >{q:NzNat}) | (n:Nat,S:NMSet) = [q:NzNat] .
+
+generate next level .
+
+--- Proving deadlock freedom
+check \
+      (< tok(n:Nat),S:NMSet >{q:NzNat}) | n:Nat in S:NMSet = True /\ S:NMSet = [q:NzNat] \/ \
+      (< crit(n:Nat),S:NMSet >{q:NzNat}) | (n:Nat,S:NMSet) = [q:NzNat] \
+subsumed by (< tok(n:Nat),n:Nat,S:NMSet >{q:NzNat}) | true \/ \
+      (< crit(n:Nat),S:NMSet >{n:Nat + p:NzNat}) | true \/ \
+      (< crit(q:NzNat),S:NMSet >{q:NzNat}) | true .
+
+narrow to 4 on ($10:Nat in $9:NMSet) .
+
+vunify to 6 with $16:Nat .=. $17:Nat =? True .
+
+empty 7 .
+
+split 5 with $13:Nat .=. $14:NzNat .
+
+vunify to 8 with True =? $16:Nat .=. $17:NzNat .
+
+vunify to 9 with False =? $19:Nat .=. $20:NzNat .
+
+empty 11 .
+
+--- Negatively prove mutex
+intersect \
+      (< tok(n:Nat),S:NMSet >{q:NzNat}) | n:Nat in S:NMSet = True /\ S:NMSet = [q:NzNat] \/ \
+      (< crit(n:Nat),S:NMSet >{q:NzNat}) | (n:Nat,S:NMSet) = [q:NzNat] \
+with \
+      (< crit(n:Nat),crit(m:Nat) >{q:NzNat}) | true \/ \
+      (< crit(n:Nat),crit(m:Nat),S:NMSet >{q:NzNat}) | true .
