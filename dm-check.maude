@@ -2819,10 +2819,10 @@ mod DM-CHECK-STRING is
 
     --- Version and build date
     op DMC-VERSION : -> String .
-    eq DMC-VERSION = "public alpha 13" .
+    eq DMC-VERSION = "public alpha 12" .
 
     op DMC-BUILT : -> String .
-    eq DMC-BUILT = "Oct 12th 2026" .
+    eq DMC-BUILT = "Oct 26th 2026" .
 
     --- Startup banner
     op DMC-BANNER : -> String .
@@ -2863,8 +2863,6 @@ mod DM-CHECK-STRING is
            "                                               Run the commands of a script file\n" +
            GREEN + "  save proof <file> ." + BW +
            "                                       Save the accepted commands as a script\n" +
-         GREEN + "  draw graph [<file>] ." + BW +
-         "                                     Save the session as an interactive HTML page\n" +
            GREEN + "  set module <M> ." + BW +
            "                                          Set the active verification module\n\n" +
 
@@ -3130,11 +3128,6 @@ mod DM-CHECK-STRING is
           (if STR' == "File operations disabled." then
            "  Start Maude with the -allow-files or -trust flag to enable saving.\n" else "" fi) + "\n" .
     eq errorMsg(62) = "\n\033[1;31m  Error:\033[0m there are no commands to save.\n\n" .
-    eq errorMsg(63, STR, STR')
-        = "\n\033[1;31m  Error:\033[0m cannot save session graph to " + STR + " (" + STR' + ").\n" +
-          (if STR' == "File operations disabled." then
-           "  Start Maude with the -allow-files or -trust flag to enable saving.\n" else "" fi) + "\n" .
-    eq errorMsg(64) = "\n\033[1;31m  Error:\033[0m there are no commands to draw.\n\n" .
 
     --- Error when variant unify has no unifier
     op noUnifierMsg : Module Term Term Nat -> String .
@@ -3559,239 +3552,6 @@ mod DM-CHECK-STRING is
           "\n" + toStringCtxs(M, {ID, CHILDREN}) .
 endm
 
-mod DM-CHECK-DRAW is
-    pr DM-CHECK-STRING .
-
-    var M : Module .
-    vars T T' T'' CTR IMPL : Term .
-    var V : Variable .
-    vars ID PID MID N : Nat .
-    vars RL TY : Qid .
-    vars SB SB' ACSB LSB RSB : Substitution .
-    var SB? : Substitution? .
-    var PROOF : ProofState .
-    var ML : MatcherList .
-    var STEP : StepKind .
-    var ORIGIN : NodeOrigin .
-    var DETAIL : TraceDetail .
-    var PARENTS : ParentNodeList .
-    var CHILDREN : ChildNodeList .
-    var OUTPUT : DMCOutput .
-    vars TS LEMMAS ULEMMAS : TermSet .
-    vars STR CHAR POS CMD TEXT SCRIPT : String .
-    var SN : Snap .
-    var SL : SnapList .
-    var B : Bool .
-
-    --- Snapshots of the session (draw graph)
-    sorts Snap SnapList .
-    subsort Snap < SnapList .
-    op noSnaps : -> SnapList [ ctor ] .
-    op _;;;_ : SnapList SnapList -> SnapList [ ctor assoc id: noSnaps ] .
-    --- Command, type, module, result, lemmas, session lemmas, pending obligations and output
-    op snap : String Qid Module DMCOutput TermSet TermSet String String -> Snap [ ctor ] .
-
-    --- JSON string contents (special characters escaped)
-    op jEsc : String -> String .
-    eq jEsc(STR)
-        = if length(STR) <= 32
-          then jEscC(STR)
-          else jEsc(substr(STR, 0, length(STR) quo 2)) + jEsc(substr(STR, length(STR) quo 2, length(STR)))
-          fi .
-    op jEscC : String -> String .
-    eq jEscC(STR)
-        = if STR == ""
-          then ""
-          else jCh(substr(STR, 0, 1)) + jEscC(substr(STR, 1, length(STR)))
-          fi .
-    op jCh : String -> String .
-    eq jCh(CHAR)
-        = if CHAR == "\\"
-          then "\\\\"
-          else if CHAR == "\""
-               then "\\\""
-               else if CHAR == "<"
-                    then "\\u003c"
-                    else if CHAR == "\n"
-                         then "\\n"
-                         else if ascii(CHAR) < 32
-                              then "\\u00" + (if ascii(CHAR) < 16 then "0" else "1" fi) +
-                                   string(ascii(CHAR) rem 16, 16)
-                              else CHAR
-                              fi
-                         fi
-                    fi
-               fi
-          fi .
-
-    --- JSON values
-    op jStr : String -> String .
-    eq jStr(STR) = "\"" + jEsc(STR) + "\"" .
-    op jT : Module Term -> String .
-    eq jT(M, T) = jStr(toString(M, T)) .
-    op jNat : Nat -> String .
-    eq jNat(N) = string(N, 10) .
-
-    --- Substitution as a list of pairs [variable, term]
-    op jSub : Module Substitution? -> String .
-    eq jSub(M, none) = "[]" .
-    eq jSub(M, (V <- T ; SB)) = "[" + jPair(M, V, T) + jSubR(M, SB) + "]" .
-    eq jSub(M, SB?) = "[]" [ owise ] .
-    op jSubR : Module Substitution -> String .
-    eq jSubR(M, none) = "" .
-    eq jSubR(M, (V <- T ; SB)) = "," + jPair(M, V, T) + jSubR(M, SB) .
-    op jPair : Module Variable Term -> String .
-    eq jPair(M, V, T) = "[" + jT(M, V) + "," + jT(M, T) + "]" .
-
-    --- Term set as a list
-    op jTerms : Module TermSet -> String .
-    eq jTerms(M, mt) = "[]" .
-    eq jTerms(M, (T ;; TS)) = "[" + jTermsR(M, TS, jT(M, T)) + "]" .
-    op jTermsR : Module TermSet String -> String .
-    eq jTermsR(M, mt, STR) = STR .
-    eq jTermsR(M, (T ;; TS), STR) = jTermsR(M, TS, STR + "," + jT(M, T)) .
-
-    --- Generated proof obligations of a lemma set
-    op oblsOf : TermSet -> TermSet .
-    eq oblsOf(mt) = mt .
-    eq oblsOf((('dmc$obl[T]) ;; TS)) = T ;; oblsOf(TS) .
-    eq oblsOf((T ;; TS)) = oblsOf(TS) [ owise ] .
-
-    --- Data of a step
-    op jDetail : Module TraceDetail -> String .
-    eq jDetail(M, noDetail) = "[]" .
-    eq jDetail(M, termDetail(T)) = "[" + jT(M, T) + "]" .
-    eq jDetail(M, pairDetail(T, T')) = "[" + jT(M, T) + "," + jT(M, T') + "]" .
-
-    --- Steps of an origin, newest first
-    op jOrigin : Module NodeOrigin -> String .
-    eq jOrigin(M, ORIGIN) = "[" + jSteps(M, ORIGIN, true, "") + "]" .
-    op jSteps : Module NodeOrigin Bool String -> String .
-    eq jSteps(M, rootOrigin, B, STR) = STR .
-    eq jSteps(M, srcState(T, CTR, SB', ORIGIN), B, STR) = jSteps(M, ORIGIN, B, STR) .
-    eq jSteps(M, origin(PID, STEP, RL, SB, ACSB, N, DETAIL, ML, srcState(T, CTR, SB', ORIGIN)), B, STR)
-        = jSteps(M, ORIGIN, false, STR + (if B then "" else "," fi) + jStep(M, PID, STEP, RL, SB, DETAIL)
-          + ",\"srcTerm\":" + jT(M, T) + ",\"srcCtr\":" + jT(M, CTR) + "}") .
-    eq jSteps(M, origin(PID, STEP, RL, SB, ACSB, N, DETAIL, ML, ORIGIN), B, STR)
-        = jSteps(M, ORIGIN, false, STR + (if B then "" else "," fi) + jStep(M, PID, STEP, RL, SB, DETAIL)
-          + ",\"srcTerm\":null,\"srcCtr\":null}") [ owise ] .
-    op jStep : Module Nat StepKind Qid Substitution TraceDetail -> String .
-    eq jStep(M, PID, STEP, RL, SB, DETAIL)
-        = "{\"src\":" + jNat(PID) + ",\"kind\":" + jStr(toStringStepKind(STEP))
-          + ",\"rule\":" + jStr(string(RL)) + ",\"sub\":" + jSub(M, SB)
-          + ",\"detail\":" + jDetail(M, DETAIL) .
-
-    --- Matchers
-    op jMatchers : Module MatcherList -> String .
-    eq jMatchers(M, noMatch) = "[]" .
-    eq jMatchers(M, ((MID, SB?, IMPL, PROOF) ; ML))
-        = "[" + jMatchersR(M, ML, jMatcher(M, MID, SB?, IMPL, PROOF)) + "]" .
-    op jMatchersR : Module MatcherList String -> String .
-    eq jMatchersR(M, noMatch, STR) = STR .
-    eq jMatchersR(M, ((MID, SB?, IMPL, PROOF) ; ML), STR)
-        = jMatchersR(M, ML, STR + "," + jMatcher(M, MID, SB?, IMPL, PROOF)) .
-    op jMatcher : Module Nat Substitution? Term ProofState -> String .
-    eq jMatcher(M, MID, SB?, IMPL, PROOF)
-        = "{\"parent\":" + jNat(MID) + ",\"sub\":" + jSub(M, SB?) + ",\"impl\":" + jT(M, IMPL)
-          + ",\"state\":" + jStr(toStringProofState(PROOF)) + "}" .
-
-    --- Parent nodes
-    op jParents : Module ParentNodeList -> String .
-    eq jParents(M, PARENTS) = jParents'(M, PARENTS, "") .
-    op jParents' : Module ParentNodeList String -> String .
-    eq jParents'(M, noParents, STR) = STR .
-    eq jParents'(M, ([ ID, T, CTR, ACSB, N ], PARENTS), STR)
-        = jParentsR(M, PARENTS, STR + jParent(M, ID, T, CTR, ACSB, rootOrigin)) .
-    eq jParents'(M, ([ ID, T, CTR, ACSB, N, ORIGIN ], PARENTS), STR)
-        = jParentsR(M, PARENTS, STR + jParent(M, ID, T, CTR, ACSB, ORIGIN)) .
-    op jParentsR : Module ParentNodeList String -> String .
-    eq jParentsR(M, noParents, STR) = STR .
-    eq jParentsR(M, PARENTS, STR) = jParents'(M, PARENTS, STR + ",") [ owise ] .
-    op jParent : Module Nat Term Term Substitution NodeOrigin -> String .
-    eq jParent(M, ID, T, CTR, ACSB, ORIGIN)
-        = "{\"kind\":\"parent\",\"id\":" + jNat(ID) + ",\"term\":" + jT(M, T) + ",\"ctr\":" + jT(M, CTR)
-          + ",\"renamed\":" + jSub(M, ACSB) + ",\"origin\":" + jOrigin(M, ORIGIN) + "}" .
-
-    --- Child nodes
-    op jChildren : Module ChildNodeList -> String .
-    eq jChildren(M, CHILDREN) = jChildren'(M, CHILDREN, "") .
-    op jChildren' : Module ChildNodeList String -> String .
-    eq jChildren'(M, noChildren, STR) = STR .
-    eq jChildren'(M, ([ ID, PID, T, CTR, RL, SB, ACSB, ML, N, ORIGIN ], CHILDREN), STR)
-        = jChildrenR(M, CHILDREN, STR + "{\"kind\":\"child\",\"id\":" + jNat(ID) + ",\"pid\":" + jNat(PID) +
-                     ",\"term\":" + jT(M, T) + ",\"ctr\":" + jT(M, CTR) + ",\"rule\":" + jStr(string(RL)) +
-                     ",\"sub\":" + jSub(M, SB) + ",\"renamed\":" + jSub(M, ACSB) + ",\"depth\":" + jNat(N) +
-                     ",\"matchers\":" + jMatchers(M, ML) + ",\"origin\":" + jOrigin(M, ORIGIN) + "}") .
-    eq jChildren'(M, ([ ID, T, CTR, ACSB, ML, N, ORIGIN ], CHILDREN), STR)
-        = jChildrenR(M, CHILDREN, STR + "{\"kind\":\"left\",\"id\":" + jNat(ID) + ",\"term\":" + jT(M, T) +
-                     ",\"ctr\":" + jT(M, CTR) + ",\"renamed\":" + jSub(M, ACSB) + ",\"depth\":" + jNat(N) +
-                     ",\"matchers\":" + jMatchers(M, ML) + ",\"origin\":" + jOrigin(M, ORIGIN) + "}") .
-    eq jChildren'(M, ([ ID, T, T', T'', CTR, LSB, RSB ], CHILDREN), STR)
-        = jChildrenR(M, CHILDREN, STR + "{\"kind\":\"inter\",\"id\":" + jNat(ID) + ",\"term\":" + jT(M, T) +
-                     ",\"ctr\":" + jT(M, CTR) + ",\"lterm\":" + jT(M, T') + ",\"rterm\":" + jT(M, T'') +
-                     ",\"lsub\":" + jSub(M, LSB) + ",\"rsub\":" + jSub(M, RSB) + "}") .
-    op jChildrenR : Module ChildNodeList String -> String .
-    eq jChildrenR(M, noChildren, STR) = STR .
-    eq jChildrenR(M, CHILDREN, STR) = jChildren'(M, CHILDREN, STR + ",") [ owise ] .
-
-    --- Nodes of a result
-    op jOutput : Module DMCOutput -> String .
-    eq jOutput(M, PARENTS || CHILDREN)
-        = "\"parents\":[" + jParents(M, PARENTS) + "],\"children\":[" +
-          jChildren(M, liveCh(CHILDREN, resIds(PARENTS || CHILDREN))) + "]" .
-    eq jOutput(M, OUTPUT) = "\"parents\":[],\"children\":[]" [ owise ] .
-
-    --- A snapshot (no proof data after commands without a result)
-    op jSnap : Snap -> String .
-    eq jSnap(snap(CMD, TY, M, OUTPUT, LEMMAS, ULEMMAS, POS, TEXT))
-        = "{\"cmd\":" + jStr(CMD) + ",\"type\":" + jStr(string(TY)) + ",\"module\":" + jStr(string(getName(M)))
-          + ",\"output\":" + jStr(TEXT) + ","
-          + (if TY == 'noType then jOutput(M, noSolution) else jOutput(M, OUTPUT) fi)
-          + ",\"lemmas\":" + jTerms(M, if TY == 'noType then mt else nuitpLemmas(LEMMAS) fi)
-          + ",\"obligations\":" + jTerms(M, if TY == 'noType then mt else oblsOf(LEMMAS) fi)
-          + ",\"session\":" + jTerms(M, ULEMMAS)
-          + ",\"pending\":" + jStr(if TY == 'noType or-else TY == 'intersect then "" else POS fi) + "}" .
-    op jSnaps : SnapList -> String .
-    eq jSnaps(noSnaps) = "" .
-    eq jSnaps(SN) = jSnap(SN) .
-    eq jSnaps(SN ;;; SL) = jSnaps'(SN ;;; SL, "") [ owise ] .
-    op jSnaps' : SnapList String -> String .
-    eq jSnaps'(noSnaps, STR) = STR .
-    eq jSnaps'(SN, STR) = STR + jSnap(SN) .
-    eq jSnaps'(SN ;;; SL, STR) = jSnaps'(SL, STR + jSnap(SN) + ",\n") [ owise ] .
-
-    --- HTML page of a session and its script
-    op drawPage : SnapList String -> String .
-    eq drawPage(SL, SCRIPT)
-        = DRAW-HEAD + "{\"version\":" + jStr(DMC-VERSION) + ",\"script\":" + jStr(SCRIPT)
-          + ",\"steps\":[\n" + jSnaps(SL) + "]}" + DRAW-TAIL .
-
-    --- Page template (generated from the viewer source)
-    ops DRAW-HEAD DRAW-TAIL : -> String .
-    eq DRAW-HEAD =
-        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>DM-Check session</title>\n<style>\n:root{--bg:#f6f7f9;--panel:#ffffff;--ink:#1d232b;--muted:#5f6b7a;--line:#d9dee5;--accent:#2f6fde;\n--parent:#2f6fde;--parentbg:#e8f0fd;--open:#c46a00;--openbg:#fff3e2;--past:#7b8794;--pastbg:#eef1f4;\n--target:#6a4bc4;--targetbg:#efeafd;--inter:#b3261e;--interbg:#fdecea;--ok:#1e7d43;--okbg:#e5f5ea;\n--warn:#a35d00;--warnbg:#fff1dc;--err:#b3261e;--errbg:#fdecea;--sel:#111;--code:#f0f2f5}\n@media (prefers-color-scheme: dark){:root{--bg:#14171c;--panel:#1c2027;--ink:#e6e9ee;--muted:#9aa5b4;--line:#2e3540;\n--accent:#6aa0ff;--parent:#6aa0ff;--parentbg:#1d2a40;--open:#f0a04b;--openbg:#3a2a14;--past:#8a96a6;--pastbg:#242a33;\n--target:#a58bff;--targetbg:#2a2342;--inter:#ff8a80;--interbg:#3d1f1d;--ok:#5fd18b;--okbg:#173322;--warn:#f0b35a;\n--warnbg:#3a2a14;--err:#ff8a80;--errbg:#3d1f1d;--sel:#fff;--code:#242a33}}\n*{box-sizing:border-box}\nbody{margin:0;background:var(--bg);color:var(--ink);font-variant-ligatures:none;font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}\nheader{display:flex;align-items:baseline;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}\nheader h1{font-size:17px;margin:0}\nheader .sub{color:var(--muted);font-size:13px}\n#app{display:grid;grid-template-columns:290px 1fr 360px;height:calc(100vh - 47px)}\n" +
-        "#side{overflow:auto;border-right:1px solid var(--line);background:var(--panel);padding:8px 0}\n.group{margin:4px 0 10px}\n.ghead{padding:6px 14px;font:600 12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.item{display:flex;gap:8px;align-items:flex-start;padding:6px 14px;cursor:pointer;border-left:3px solid transparent}\n.item:hover{background:var(--code)}\n.item.on{background:var(--parentbg);border-left-color:var(--accent)}\n.item .n{color:var(--muted);font-variant-numeric:tabular-nums;min-width:22px;text-align:right}\n.item .c{flex:1;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap}\n.p-ok{background:var(--okbg);color:var(--ok)}.p-warn{background:var(--warnbg);color:var(--warn)}\n.p-err{background:var(--errbg);color:var(--err)}.p-info{background:var(--code);color:var(--muted)}\n#main{display:flex;flex-direction:column;min-width:0}\n#stephead{padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}\n#stephead pre{margin:4px 0 6px;white-space:pre-wrap;word-break:break-word;max-height:4.6em;overflow:auto;font-size:12.5px}\n#stephead .meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;color:var(--muted);font-size:13px}\n#toolbar{display:flex;gap:6px;margin-left:auto}\n" +
-        "button{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:3px 10px;cursor:pointer;font:inherit;font-size:13px}\nbutton:hover{border-color:var(--accent)}\n#graphwrap{flex:1;overflow:auto;position:relative;cursor:grab;background:var(--bg)}\n#graphwrap.drag{cursor:grabbing}\n#bands{padding:10px 16px 0}\n.band{margin-bottom:8px}\n.band .bt{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:4px}\n.band .cards{display:flex;flex-wrap:wrap;gap:8px}\n.card{border:1.5px solid var(--target);background:var(--targetbg);border-radius:8px;padding:6px 9px;cursor:pointer;max-width:340px}\n.card.sel{outline:2px solid var(--sel)}\n.card b{font-size:12px}.card div{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\nsvg text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}\n.node rect{stroke-width:1.5;rx:8}\n.node{cursor:pointer}\n.node .t1{font:600 12px system-ui,sans-serif;fill:var(--ink)}\n.node .t2{font-size:11px;fill:var(--ink)}\n.node .t3{font-size:10.5px;fill:var(--muted)}\n.r-parent rect{fill:var(--parentbg);stroke:var(--parent)}\n.r-open rect,.r-left rect{fill:var(--openbg);stroke:var(--open)}\n.r-past rect{fill:var(--pastbg);stroke:var(--past);stroke-dasharray:4 3}\n.r-inter rect{fill:var(--interbg);stroke:var(--inter)}\n.r-closed rect{fill:var(--okbg);stroke:var(--ok)}\n.node.sel rect{stroke:var(--sel);stroke-width:2.5}\n" +
-        ".node .new{font:600 10px system-ui,sans-serif;fill:var(--accent)}\n.edge{fill:none;stroke:var(--muted);stroke-width:1.3}\n.elab rect{fill:var(--panel);stroke:var(--line)}\n.elab text{font:11px system-ui,sans-serif;fill:var(--muted)}\n.mline{fill:none;stroke:var(--accent);stroke-width:1.2;stroke-dasharray:5 4}\n#detail{overflow:auto;border-left:1px solid var(--line);background:var(--panel);padding:12px 14px}\n#detail h2{font-size:15px;margin:0 0 4px}\n#detail h3{font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin:14px 0 4px}\n#detail pre,.out pre{background:var(--code);border-radius:6px;padding:6px 8px;margin:0;white-space:pre-wrap;word-break:break-word;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}\n.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:13px}\n.kv span:nth-child(odd){color:var(--muted)}\n.mat{border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin:6px 0}\n.path li{margin:2px 0}\n.muted{color:var(--muted)}\n#bottom{border-top:1px solid var(--line);background:var(--panel);max-height:32vh;display:flex;flex-direction:column}\n.tabs{display:flex;gap:2px;padding:4px 10px 0}\n.tab{padding:5px 10px;border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer;color:var(--muted);font-size:13px}\n.tab.on{border-color:var(--line);background:var(--bg);color:var(--ink)}\n.out{overflow:auto;padding:8px 12px;background:var(--bg);border-top:1px solid var(--line)}\n" +
-        ".out.hidden{display:none}\n.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--muted)}\n.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:4px;vertical-align:-2px;border:1.5px solid}\n@media (max-width:1100px){#app{grid-template-columns:240px 1fr}#detail{grid-column:1/3;border-left:none;border-top:1px solid var(--line);max-height:40vh}}\n@media (max-width:720px){#app{display:block;height:auto}#side{max-height:30vh}#graphwrap{height:60vh}}\n</style>\n</head>\n<body>\n<header><h1>DM-Check session</h1><span class=\"sub\" id=\"sub\"></span></header>\n<div id=\"app\">\n<nav id=\"side\"></nav>\n<section id=\"main\">\n<div id=\"stephead\"></div>\n<div id=\"graphwrap\"><div id=\"bands\"></div><svg id=\"svg\" xmlns=\"http://www.w3.org/2000/svg\"></svg></div>\n<div id=\"bottom\"><div class=\"tabs\" id=\"tabs\"></div><div class=\"out\" id=\"out\"></div></div>\n</section>\n<aside id=\"detail\"></aside>\n</div>\n<script>const DMC = " .
-    eq DRAW-TAIL =
-        ";</script>\n<script>\n(function(){\n\"use strict\";\nvar steps = DMC.steps || [];\nvar $ = function(id){ return document.getElementById(id); };\nfunction el(tag, attrs, kids){ var e = document.createElement(tag); if(attrs){ for(var k in attrs){ if(k === \"text\") e.textContent = attrs[k]; else if(k === \"cls\") e.className = attrs[k]; else e.setAttribute(k, attrs[k]); } } (kids || []).forEach(function(c){ if(c) e.appendChild(typeof c === \"string\" ? document.createTextNode(c) : c); }); return e; }\nfunction sv(tag, attrs){ var e = document.createElementNS(\"http://www.w3.org/2000/svg\", tag); for(var k in attrs) e.setAttribute(k, attrs[k]); return e; }\nfunction strip(s){ return (s || \"\").replace(/\\u001b\\[[0-9;]*m/g, \"\"); }\nfunction trunc(s, n){ s = s || \"\"; return s.length > n ? s.slice(0, n - 1) + \"\\u2026\" : s; }\nfunction first(s){ return (s || \"\").split(\"\\n\")[0].replace(/\\\\\\s*$/, \"\").trim(); }\nvar MAIN = /^(check\\b|generate ind-invariant|gen ind-invariant|intersect\\b|set module)/;\nfunction verdict(s){\n  var nc = (s.children || []).length, obl = (s.lemmas || []).length + (s.obligations || []).length + (s.pending ? 1 : 0);\n  var w = obl ? \", with obligations\" : \"\";\n  switch(s.type){\n    case \"invariant\": return nc ? [\"Open: \" + nc, \"p-warn\"] : [\"Proved\" + w, \"p-ok\"];\n    case \"generate\": return nc ? [\"Open: \" + nc, \"p-warn\"] : [\"Invariant found\" + w, \"p-ok\"];\n    case \"subsumption\": return nc ? [\"Not subsumed: \" + nc, \"p-warn\"] : [\"Subsumed\" + w, \"p-ok\"];\n" +
-        "    case \"intersect\": return nc ? [\"Intersection: \" + nc, \"p-warn\"] : [\"No intersection\" + w, \"p-ok\"];\n    default: return [\"\", \"p-info\"];\n  }\n}\nfunction roleOf(s, kind){\n  if(kind === \"parent\"){ if(s.type === \"subsumption\") return \"target\"; if(s.type === \"intersect\") return \"side\"; return \"parent\"; }\n  if(kind === \"child\") return \"open\"; if(kind === \"left\") return \"left\"; if(kind === \"inter\") return \"inter\"; return \"past\";\n}\nfunction title(s, n){\n  switch(n.role){\n    case \"parent\": return \"Parent \" + n.id + (n.data.origin && n.data.origin.length ? \" (promoted)\" : \" (initial)\");\n    case \"open\": return \"Child \" + n.id + \" (open)\";\n    case \"left\": return \"Term \" + n.id + \" (not subsumed)\";\n    case \"target\": return \"Pattern \" + n.id;\n    case \"side\": return \"Pattern \" + n.id;\n    case \"inter\": return \"Term \" + n.id + (n.closed ? \" (closed)\" : \"\");\n    case \"closed\": if(n.lastRole === \"parent\") return \"Parent \" + n.id + \" (removed)\"; return (s.type === \"subsumption\" || s.type === \"intersect\" ? \"Term \" : \"Child \") + n.id + \" (closed)\";\n    default:\n      if(n.outKind === \"narrowing\" && s.type !== \"subsumption\" && s.type !== \"intersect\") return \"Parent \" + n.id + (n.data.origin && n.data.origin.length ? \" (promoted)\" : \" (initial)\");\n      return (s.type === \"subsumption\" || s.type === \"intersect\" ? \"Term \" : \"Child \") + n.id + \" (transformed)\";\n  }\n}\nfunction stepLabel(st){\n  if(st.kind === \"narrowing\") return st.rule;\n  if(st.kind === \"auxiliary narrowing\") return \"narrow\";\n" +
-        "  if(st.kind === \"variable abstraction\") return \"va\";\n  if(st.kind === \"variant unification\") return \"vunify\";\n  return st.kind;\n}\nfunction build(s){\n  var nodes = {}, order = [], edges = [];\n  function add(key, n){ if(!nodes[key]){ n.key = key; nodes[key] = n; order.push(n); } return nodes[key]; }\n  (s.parents || []).forEach(function(p){ add(\"n\" + p.id, {id: p.id, role: roleOf(s, \"parent\"), data: p}); });\n  (s.children || []).forEach(function(c){ add(\"n\" + c.id, {id: c.id, role: roleOf(s, c.kind), data: c}); });\n  order.slice().forEach(function(n){\n    var cur = n, org = n.data.origin || [];\n    for(var i = 0; i < org.length; i++){\n      var st = org[i], key = \"n\" + st.src, src = nodes[key], stop = !!src;\n      if(key === cur.key) break;\n      if(!src) src = add(key, {id: st.src, role: \"past\", data: {term: st.srcTerm, ctr: st.srcCtr, origin: org.slice(i + 1)}});\n      edges.push({from: key, to: cur.key, label: stepLabel(st), step: st});\n      if(src.role === \"past\" && !src.outKind) src.outKind = st.kind;\n      if(stop) break;\n      cur = src;\n    }\n  });\n  return {nodes: nodes, order: order, edges: edges};\n}\nfunction groupStart(i){ for(var j = i; j > 0; j--){ if(MAIN.test(steps[j].cmd.trim())) return j; } return 0; }\nfunction buildAcc(i){\n  var s = steps[i], g = build(s);\n  if(s.type === \"noType\") return g;\n  var gs = groupStart(i), seenEdge = {};\n  g.edges.forEach(function(e){ seenEdge[e.from + \">\" + e.to] = true; });\n  for(var j = i - 1; j >= gs; j--){\n" +
-        "    if(steps[j].type !== s.type) continue;\n    var gj = build(steps[j]);\n    gj.order.forEach(function(n){\n      if(g.nodes[n.key]) return;\n      var m = {id: n.id, role: n.role, data: n.data, key: n.key, gone: j + 1, lastRole: n.role};\n      if(m.role === \"target\" || m.role === \"side\") return;\n      g.nodes[n.key] = m; g.order.push(m);\n    });\n    gj.edges.forEach(function(e){ var k = e.from + \">\" + e.to; if(!seenEdge[k] && g.nodes[e.from] && g.nodes[e.to]){ seenEdge[k] = true; g.edges.push(e); } });\n  }\n  var out = {};\n  g.edges.forEach(function(e){ out[e.from] = true; });\n  g.order.forEach(function(n){\n    if(n.gone === undefined) return;\n    if(out[n.key]) n.role = \"past\";\n    else if(n.role === \"inter\"){ n.closed = true; n.role = \"closed\"; }\n    else if(n.role !== \"past\") n.role = \"closed\";\n  });\n  return g;\n}\nvar W = 220, H = 62, GX = 26, VY = 116, PAD = 24;\nvar state = {i: 0, sel: null, zoom: 1, tab: \"output\"};\nfunction layout(g){\n  var kids = {}, hasIn = {};\n  g.edges.forEach(function(e){ (kids[e.from] = kids[e.from] || []).push(e.to); hasIn[e.to] = true; });\n  var tree = g.order.filter(function(n){ return n.role !== \"target\" && n.role !== \"side\" && n.role !== \"inter\" && !n.closed; });\n  tree.forEach(function(n){ if(kids[n.key]) kids[n.key].sort(function(a, b){ return g.nodes[a].id - g.nodes[b].id; }); });\n  var roots = tree.filter(function(n){ return !hasIn[n.key]; }).sort(function(a, b){ return a.id - b.id; });\n" +
-        "  var inter = g.order.filter(function(n){ return n.role === \"inter\" || n.closed; });\n  var wid = {};\n  function width(k){ if(wid[k] !== undefined) return wid[k]; var ks = kids[k] || []; var w = 0; ks.forEach(function(c){ w += width(c) + GX; }); w = Math.max(W, w - (ks.length ? GX : 0)); wid[k] = w; return w; }\n  var x = PAD, maxD = 0, pos = {};\n  function place(k, x0, d){ var w = width(k); pos[k] = {x: x0 + (w - W) / 2, y: PAD + d * VY}; maxD = Math.max(maxD, d); var cx = x0; var ks = kids[k] || []; var tot = 0; ks.forEach(function(c){ tot += width(c) + GX; }); tot -= ks.length ? GX : 0; cx = x0 + (w - tot) / 2; ks.forEach(function(c){ place(c, cx, d + 1); cx += width(c) + GX; }); }\n  roots.forEach(function(r){ place(r.key, x, 0); x += width(r.key) + GX * 2; });\n  var y0 = roots.length ? PAD + (maxD + 1) * VY : PAD;\n  var ix = PAD; inter.forEach(function(n){ pos[n.key] = {x: ix, y: y0}; ix += W + GX; });\n  var totalW = Math.max(x, ix) + PAD, totalH = (inter.length ? y0 + H : y0 - VY + H) + PAD + 10;\n  return {pos: pos, w: Math.max(totalW, 300), h: Math.max(totalH, 120)};\n}\nfunction prevOf(i){ if(i <= 0) return null; var c = steps[i].cmd.trim(); if(MAIN.test(c)) return null; return steps[i - 1]; }\nfunction idsOf(s){ var r = {}; (s.parents || []).concat(s.children || []).forEach(function(n){ r[n.id] = n; }); return r; }\nfunction renderSide(){\n  var side = $(\"side\"); side.innerHTML = \"\";\n  var grp = null;\n  steps.forEach(function(s, i){\n    var c = s.cmd.trim();\n" +
-        "    if(!grp || MAIN.test(c)){ grp = el(\"div\", {cls: \"group\"}); grp.appendChild(el(\"div\", {cls: \"ghead\", title: c, text: MAIN.test(c) ? first(c) : \"Session\"})); side.appendChild(grp); }\n    var v = verdict(s);\n    var it = el(\"div\", {cls: \"item\" + (i === state.i ? \" on\" : \"\"), title: c}, [el(\"span\", {cls: \"n\", text: String(i + 1)}), el(\"span\", {cls: \"c\", text: first(c)}), v[0] ? el(\"span\", {cls: \"pill \" + v[1], text: v[0]}) : null]);\n    it.onclick = function(){ select(i); };\n    grp.appendChild(it);\n  });\n}\nfunction renderHead(s, g){\n  var h = $(\"stephead\"); h.innerHTML = \"\";\n  var v = verdict(s);\n  var prev = prevOf(state.i), removed = [];\n  if(prev){ var now = idsOf(s), was = idsOf(prev); Object.keys(was).forEach(function(k){ if(!now[k]) removed.push(k); }); }\n  var meta = el(\"div\", {cls: \"meta\"}, [el(\"span\", {text: \"Step \" + (state.i + 1) + \" of \" + steps.length}), el(\"span\", {text: \"Module \" + s.module}), v[0] ? el(\"span\", {cls: \"pill \" + v[1], text: v[0]}) : null,\n    removed.length ? el(\"span\", {text: \"Closed or transformed in this step: \" + removed.join(\", \")}) : null]);\n  var tb = el(\"div\", {id: \"toolbar\"});\n  [[\"\\u2212\", function(){ zoom(1 / 1.2); }], [\"+\", function(){ zoom(1.2); }], [\"Fit\", fit], [\"\\u2190\", function(){ select(state.i - 1); }], [\"\\u2192\", function(){ select(state.i + 1); }]].forEach(function(b){ var x = el(\"button\", {text: b[0]}); x.onclick = b[1]; tb.appendChild(x); });\n  meta.appendChild(tb);\n  h.appendChild(el(\"pre\", {text: s.cmd}));\n" +
-        "  h.appendChild(meta);\n  var lg = el(\"div\", {cls: \"legend\"});\n  [[\"parent\", \"Parent (invariant pattern)\"], [\"open\", \"Open child / term\"], [\"past\", \"Transformed node\"], [\"ok\", \"Closed node\"], [\"target\", \"Target pattern\"], [\"inter\", \"Intersection term\"]].forEach(function(r){\n    var i = el(\"i\"); i.style.borderColor = \"var(--\" + r[0] + \")\"; i.style.background = \"var(--\" + r[0] + \"bg)\"; lg.appendChild(el(\"span\", null, [i, r[1]]));\n  });\n  lg.appendChild(el(\"span\", {text: \"Nodes closed during a command (for instance, children subsumed by narrowing) are not recorded and are not drawn.\"}));\n  h.appendChild(lg);\n}\nfunction renderBands(s, g){\n  var b = $(\"bands\"); b.innerHTML = \"\";\n  var groups = [[\"target\", \"Target patterns (right-hand side of subsumed by)\"], [\"side\", \"Patterns of both sides of intersect\"]];\n  groups.forEach(function(gp){\n    var ns = g.order.filter(function(n){ return n.role === gp[0]; });\n    if(!ns.length) return;\n    var cards = el(\"div\", {cls: \"cards\"});\n    ns.forEach(function(n){ var c = el(\"div\", {cls: \"card\" + (state.sel === n.key ? \" sel\" : \"\"), title: n.data.term + \"\\n| \" + n.data.ctr}, [el(\"b\", {text: title(s, n)}), el(\"div\", {text: n.data.term}), el(\"div\", {text: \"| \" + n.data.ctr})]); c.onclick = function(){ state.sel = n.key; render(); }; cards.appendChild(c); });\n    b.appendChild(el(\"div\", {cls: \"band\"}, [el(\"div\", {cls: \"bt\", text: gp[1]}), cards]));\n  });\n" +
-        "  if(!g.order.length) b.appendChild(el(\"p\", {cls: \"muted\", text: s.type === \"noType\" ? \"No proof result in this step.\" : \"No nodes to draw.\"}));\n}\nfunction renderGraph(s, g){\n  var svg = $(\"svg\"); while(svg.firstChild) svg.removeChild(svg.firstChild);\n  var L = layout(g), prev = prevOf(state.i), was = prev ? idsOf(prev) : null;\n  var z = state.zoom;\n  svg.setAttribute(\"viewBox\", \"0 0 \" + L.w + \" \" + L.h);\n  svg.setAttribute(\"width\", L.w * z); svg.setAttribute(\"height\", L.h * z);\n  var defs = sv(\"defs\", {}); var mk = sv(\"marker\", {id: \"arr\", viewBox: \"0 0 10 10\", refX: \"9\", refY: \"5\", markerWidth: \"7\", markerHeight: \"7\", orient: \"auto-start-reverse\"}); mk.appendChild(sv(\"path\", {d: \"M0,0 L10,5 L0,10 z\", fill: \"currentColor\"})); defs.appendChild(mk); svg.appendChild(defs);\n  var ge = sv(\"g\", {}), gl = sv(\"g\", {}), gn = sv(\"g\", {});\n  svg.appendChild(ge); svg.appendChild(gl); svg.appendChild(gn);\n  g.edges.forEach(function(e){\n    var a = L.pos[e.from], b = L.pos[e.to]; if(!a || !b) return;\n    var x1 = a.x + W / 2, y1 = a.y + H, x2 = b.x + W / 2, y2 = b.y, my = (y1 + y2) / 2;\n    var p = sv(\"path\", {cls: \"edge\", d: \"M\" + x1 + \",\" + y1 + \" C\" + x1 + \",\" + my + \" \" + x2 + \",\" + my + \" \" + x2 + \",\" + (y2 - 2), \"marker-end\": \"url(#arr)\"});\n    p.setAttribute(\"class\", \"edge\"); p.style.color = \"var(--muted)\"; ge.appendChild(p);\n    var lab = trunc(e.label, 22), tw = lab.length * 6.4 + 12, lx = (x1 + x2) / 2, ly = my;\n    var lg = sv(\"g\", {}); lg.setAttribute(\"class\", \"elab\");\n" +
-        "    lg.appendChild(sv(\"rect\", {x: lx - tw / 2, y: ly - 9, width: tw, height: 18, rx: 9}));\n    var t = sv(\"text\", {x: lx, y: ly + 4, \"text-anchor\": \"middle\"}); t.textContent = lab; lg.appendChild(t);\n    var tt = sv(\"title\", {}); tt.textContent = e.step.kind + (e.step.kind === \"narrowing\" ? \" with rule \" + e.step.rule : \"\"); lg.appendChild(tt);\n    gl.appendChild(lg);\n  });\n  g.order.forEach(function(n){\n    var p = L.pos[n.key]; if(!p) return;\n    var gr = sv(\"g\", {transform: \"translate(\" + p.x + \",\" + p.y + \")\"});\n    gr.setAttribute(\"class\", \"node r-\" + n.role + (state.sel === n.key ? \" sel\" : \"\"));\n    gr.appendChild(sv(\"rect\", {width: W, height: H, rx: 8}));\n    var t1 = sv(\"text\", {x: 10, y: 18}); t1.setAttribute(\"class\", \"t1\"); t1.textContent = trunc(title(s, n), 30); gr.appendChild(t1);\n    var d = n.data, term = n.role === \"inter\" ? d.term : d.term;\n    var t2 = sv(\"text\", {x: 10, y: 36}); t2.setAttribute(\"class\", \"t2\"); t2.textContent = trunc(term || \"\", 32); gr.appendChild(t2);\n    var t3 = sv(\"text\", {x: 10, y: 52}); t3.setAttribute(\"class\", \"t3\"); t3.textContent = trunc(\"| \" + (d.ctr || \"\"), 34); gr.appendChild(t3);\n    if(was && n.role !== \"past\" && n.gone === undefined && !was[n.id]){ var nw = sv(\"text\", {x: W - 8, y: 16, \"text-anchor\": \"end\"}); nw.setAttribute(\"class\", \"new\"); nw.textContent = \"new\"; gr.appendChild(nw); }\n    var tt = sv(\"title\", {}); tt.textContent = (d.term || \"\") + \"\\n| \" + (d.ctr || \"\"); gr.appendChild(tt);\n" +
-        "    gr.onclick = function(ev){ ev.stopPropagation(); state.sel = n.key; render(); };\n    gn.appendChild(gr);\n  });\n  var sn = state.sel && g.nodes[state.sel];\n  if(sn && sn.data.matchers){\n    sn.data.matchers.forEach(function(m){\n      var a = L.pos[sn.key], b = L.pos[\"n\" + m.parent]; if(!a || !b) return;\n      var x1 = a.x + W / 2, y1 = a.y, x2 = b.x + W, y2 = b.y + H / 2;\n      var p = sv(\"path\", {d: \"M\" + x1 + \",\" + y1 + \" Q\" + (x1 + 60) + \",\" + ((y1 + y2) / 2) + \" \" + x2 + \",\" + y2}); p.setAttribute(\"class\", \"mline\"); ge.appendChild(p);\n    });\n  }\n}\nfunction fmtSub(sub){ if(!sub || !sub.length) return \"none\"; return sub.map(function(p){ return p[0] + \" --> \" + p[1]; }).join(\"\\n\"); }\nfunction detailLabels(st){\n  var d = st.detail || [];\n  switch(st.kind){\n    case \"case\": return [[\"Variable\", d[0]], [\"Generator term\", d[1]]];\n    case \"variable abstraction\": return [[\"Abstracted term\", d[0]], [\"New variable\", d[1]]];\n    case \"substitution\": return [[\"Variable\", d[0]], [\"Replaced by\", d[1]]];\n    case \"variant unification\": return [[\"Equation\", d.length > 1 ? d[0] + \" =? \" + d[1] : d[0]]];\n    case \"auxiliary narrowing\": return [[\"Narrowed term\", d[0]]];\n    case \"split\": return [[\"Boolean term\", d[0]]];\n    case \"generalization\": return [[\"Pattern\", d.join(\" | \")]];\n    default: return d.length ? [[\"Data\", d.join(\"\\n\")]] : [];\n  }\n}\nfunction renderDetail(s, g){\n  var box = $(\"detail\"); box.innerHTML = \"\";\n  var n = state.sel && g.nodes[state.sel];\n  if(!n){\n" +
-        "    box.appendChild(el(\"h2\", {text: \"Select a node\"}));\n    box.appendChild(el(\"p\", {cls: \"muted\", text: \"Click a node of the graph (or a pattern card) to see its term, constraint, how it was obtained and its matchers. Use the list on the left to move between the steps of the session; the arrow keys also work.\"}));\n    return;\n  }\n  var d = n.data;\n  box.appendChild(el(\"h2\", {text: title(s, n)}));\n  if(n.role === \"past\") box.appendChild(el(\"p\", {cls: \"muted\", text: \"This node is not in the current result: a command transformed it into the nodes below it\" + (n.gone !== undefined ? \" in step \" + (n.gone + 1) + \" (\" + first(steps[n.gone].cmd) + \")\" : \"\") + \".\"}));\n  if(n.role === \"closed\" && n.lastRole === \"parent\") box.appendChild(el(\"p\", {cls: \"muted\", text: \"Parent in the previous step; it is not a parent of the result from step \" + (n.gone + 1) + \" (\" + first(steps[n.gone].cmd) + \") on. The data shown is the last recorded one.\"}));\n  else if(n.role === \"closed\") box.appendChild(el(\"p\", {cls: \"muted\", text: \"Closed in step \" + (n.gone + 1) + \" (\" + first(steps[n.gone].cmd) + \"). It was open in the previous step and it is not open from this command on. The data shown is the last recorded one.\"}));\n  box.appendChild(el(\"h3\", {text: \"Term\"})); box.appendChild(el(\"pre\", {text: d.term || \"\"}));\n  box.appendChild(el(\"h3\", {text: \"Constraint\"})); box.appendChild(el(\"pre\", {text: d.ctr || \"\"}));\n  if(d.lterm !== undefined){\n" +
-        "    box.appendChild(el(\"h3\", {text: \"Left term\"})); box.appendChild(el(\"pre\", {text: d.lterm + \"\\n\" + fmtSub(d.lsub)}));\n    box.appendChild(el(\"h3\", {text: \"Right term\"})); box.appendChild(el(\"pre\", {text: d.rterm + \"\\n\" + fmtSub(d.rsub)}));\n  }\n  if(d.renamed && d.renamed.length && !(d.origin && d.origin.length)){ box.appendChild(el(\"h3\", {text: \"Renamed variables\"})); box.appendChild(el(\"pre\", {text: fmtSub(d.renamed)})); }\n  var org = d.origin || [];\n  if(org.length){\n    var st = org[0];\n    box.appendChild(el(\"h3\", {text: \"Last transformation\"}));\n    var kv = el(\"div\", {cls: \"kv\"}, [el(\"span\", {text: \"Kind\"}), el(\"span\", {text: st.kind}), el(\"span\", {text: \"From\"}), el(\"span\", {text: \"node \" + st.src})]);\n    if(st.kind === \"narrowing\"){ kv.appendChild(el(\"span\", {text: \"Rule\"})); kv.appendChild(el(\"span\", {text: st.rule})); }\n    box.appendChild(kv);\n    detailLabels(st).forEach(function(p){ box.appendChild(el(\"div\", {cls: \"muted\", text: p[0]})); box.appendChild(el(\"pre\", {text: p[1] || \"\"})); });\n    box.appendChild(el(\"div\", {cls: \"muted\", text: \"Substitution\"})); box.appendChild(el(\"pre\", {text: fmtSub(st.sub)}));\n    box.appendChild(el(\"h3\", {text: \"Path from the initial pattern\"}));\n    var ol = el(\"ol\", {cls: \"path\"}), chain = org.slice().reverse();\n    chain.forEach(function(c){ ol.appendChild(el(\"li\", {text: \"node \" + c.src + \"  \\u2192  \" + c.kind + (c.kind === \"narrowing\" ? \" (\" + c.rule + \")\" : \"\")})); });\n    ol.appendChild(el(\"li\", {text: title(s, n)}));\n" +
-        "    box.appendChild(ol);\n  }\n  if(d.matchers){\n    box.appendChild(el(\"h3\", {text: \"Matchers\"}));\n    if(!d.matchers.length) box.appendChild(el(\"p\", {cls: \"muted\", text: \"No matching pattern found.\"}));\n    d.matchers.forEach(function(m, k){\n      var cls = m.state === \"sat\" ? \"p-ok\" : (m.state === \"open\" ? \"p-warn\" : \"p-err\");\n      box.appendChild(el(\"div\", {cls: \"mat\"}, [el(\"div\", null, [el(\"b\", {text: \"#\" + (k + 1) + \" with node \" + m.parent + \"  \"}), el(\"span\", {cls: \"pill \" + cls, text: m.state})]), el(\"div\", {cls: \"muted\", text: \"Matching substitution\"}), el(\"pre\", {text: fmtSub(m.sub)}), el(\"div\", {cls: \"muted\", text: \"NuITP implication\"}), el(\"pre\", {text: m.impl})]));\n    });\n  }\n}\nfunction renderBottom(s){\n  var tabs = [[\"output\", \"Output\"], [\"lemmas\", \"Lemmas and obligations\"], [\"script\", \"Script up to this step\"], [\"full\", \"Saved script\"]];\n  var tb = $(\"tabs\"); tb.innerHTML = \"\";\n  tabs.forEach(function(t){ var e = el(\"div\", {cls: \"tab\" + (state.tab === t[0] ? \" on\" : \"\"), text: t[1]}); e.onclick = function(){ state.tab = (state.tab === t[0] ? \"\" : t[0]); renderBottom(s); }; tb.appendChild(e); });\n  var out = $(\"out\"); out.innerHTML = \"\"; out.className = \"out\" + (state.tab ? \"\" : \" hidden\");\n  if(state.tab === \"output\") out.appendChild(el(\"pre\", {text: strip(s.output).replace(/^\\n+/, \"\")}));\n  if(state.tab === \"lemmas\"){\n    var sec = function(t, xs){ out.appendChild(el(\"b\", {text: t})); out.appendChild(el(\"pre\", {text: xs.length ? xs.join(\"\\n\") : \"none\"})); };\n" +
-        "    sec(\"Lemmas assumed by this proof\", s.lemmas || []);\n    sec(\"Proof obligations generated by the commands of this proof\", s.obligations || []);\n    sec(\"Pending obligations reported by the last result\", s.pending ? [strip(s.pending).trim()] : []);\n    sec(\"Session lemmas (add lemma)\", s.session || []);\n  }\n  if(state.tab === \"script\") out.appendChild(el(\"pre\", {text: steps.slice(0, state.i + 1).map(function(x){ return x.cmd; }).join(\"\\n\\n\")}));\n  if(state.tab === \"full\") out.appendChild(el(\"pre\", {text: DMC.script || \"\"}));\n}\nvar cur = null;\nfunction render(){\n  if(!steps.length){ $(\"stephead\").textContent = \"The session has no recorded commands.\"; return; }\n  var s = steps[state.i]; cur = buildAcc(state.i);\n  if(state.sel && !cur.nodes[state.sel]) state.sel = null;\n  renderSide(); renderHead(s, cur); renderBands(s, cur); renderGraph(s, cur); renderDetail(s, cur); renderBottom(s);\n}\nfunction autofit(){ var L = layout(cur), wr = $(\"graphwrap\"); if(L.w > wr.clientWidth - 10){ state.zoom = Math.max(0.5, (wr.clientWidth - 20) / L.w); renderGraph(steps[state.i], cur); } }\nfunction select(i){ if(i < 0 || i >= steps.length) return; state.i = i; state.sel = null; state.zoom = 1; render(); autofit(); var on = document.querySelector(\".item.on\"); if(on && on.scrollIntoView) on.scrollIntoView({block: \"nearest\"}); }\nfunction zoom(f){ state.zoom = Math.min(3, Math.max(0.2, state.zoom * f)); renderGraph(steps[state.i], cur); }\n" +
-        "function fit(){ var L = layout(cur), wr = $(\"graphwrap\"); state.zoom = Math.min(1.5, Math.max(0.2, Math.min((wr.clientWidth - 20) / L.w, (wr.clientHeight - $(\"bands\").offsetHeight - 20) / L.h))); renderGraph(steps[state.i], cur); }\n$(\"sub\").textContent = \"DM-Check \" + (DMC.version || \"\") + \" \\u00b7 \" + steps.length + \" recorded commands\";\ndocument.addEventListener(\"keydown\", function(e){ if(e.target.tagName === \"INPUT\") return; if(e.key === \"ArrowDown\" || e.key === \"j\"){ select(state.i + 1); e.preventDefault(); } if(e.key === \"ArrowUp\" || e.key === \"k\"){ select(state.i - 1); e.preventDefault(); } });\nvar wr = $(\"graphwrap\"), dragging = null;\nwr.addEventListener(\"mousedown\", function(e){ if(e.target.closest && e.target.closest(\".node,.card,button\")) return; dragging = {x: e.clientX, y: e.clientY, l: wr.scrollLeft, t: wr.scrollTop}; wr.classList.add(\"drag\"); });\nwindow.addEventListener(\"mousemove\", function(e){ if(!dragging) return; wr.scrollLeft = dragging.l - (e.clientX - dragging.x); wr.scrollTop = dragging.t - (e.clientY - dragging.y); });\nwindow.addEventListener(\"mouseup\", function(){ dragging = null; wr.classList.remove(\"drag\"); });\n$(\"svg\").addEventListener(\"click\", function(){ if(state.sel){ state.sel = null; render(); } });\nvar last = 0; steps.forEach(function(s, i){ if(s.type !== \"noType\") last = i; }); state.i = steps.length ? last : 0;\nrender(); if(steps.length) autofit();\n})();\n</script>\n</body>\n</html>\n" .
-endm
-
 mod DM-CHECK-UI-SYNTAX is
     pr QID-LIST .
 
@@ -3817,8 +3577,6 @@ mod DM-CHECK-UI-SYNTAX is
     op set`module_. : Token -> Command .
     op load_ : Token -> Command .
     op save`proof_. : Token -> Command .
-    op draw`graph`. : -> Command .
-    op draw`graph_. : Token -> Command .
     op add`lemma_. : Bubble -> Command .
     op reset`lemmas`. : -> Command .
 
@@ -3860,7 +3618,6 @@ endm
 
 mod DM-CHECK-UI is
     pr DM-CHECK-STRING .
-    pr DM-CHECK-DRAW .
     pr DM-CHECK .
     pr STD-STREAM .
     pr FILE .
@@ -3875,7 +3632,7 @@ mod DM-CHECK-UI is
     var RLS : RuleSet .
     vars N N' ID ID' PID PID' MID : Nat .
     var NZ : NzNat .
-    vars STR STR' CMD CMD' TMP POS NAME PROMPT ACC PEND SUM OLD NEW HIST VAPEND TEXT MSG : String .
+    vars STR STR' CMD TMP POS NAME PROMPT ACC PEND SUM OLD NEW HIST VAPEND TEXT MSG : String .
     vars M? M'? M''? : [Module] .
     vars T? PARSED-VAR PARSED-SUBTERM PARSED-EXP : [Term] .
     var TL : TermList .
@@ -3918,7 +3675,6 @@ mod DM-CHECK-UI is
     var NNL : NeNatList .
     vars TL? TL'? : [TermList] .
     vars RP? RP'? : ResultPair? .
-    var SNAPS : SnapList .
 
     sorts StringQid ScriptMode SaveMode .
 
@@ -3942,7 +3698,6 @@ mod DM-CHECK-UI is
     op history:_ : String -> Attribute [ ctor prec 20 gather (&) ] .
     op histPending:_ : String -> Attribute [ ctor prec 20 gather (&) ] .
     op saving:_ : SaveMode -> Attribute [ ctor prec 20 gather (&) ] .
-    op session:_ : SnapList -> Attribute [ ctor prec 20 gather (&) ] . --- Snapshots of the recorded commands
 
     --- Script being run by load
     op script:_ : ScriptMode -> Attribute [ ctor prec 20 gather (&) ] .
@@ -3997,7 +3752,7 @@ mod DM-CHECK-UI is
     op init : -> Configuration .
     eq init
         = <> < oid : cid | module: noModule, lemmasui: mt, userlem: mt, lastRes: noSolution, lastCmd: ("" | 'noType),
-                           tmpCmd: "", pos: "", history: "", histPending: "", session: noSnaps, maxid: 0 >
+                           tmpCmd: "", pos: "", history: "", histPending: "", maxid: 0 >
              write(stdout, oid, DMC-BANNER) .
 
     --- parse command
@@ -4107,7 +3862,7 @@ mod DM-CHECK-UI is
     op keepsSelect : String -> Bool .
     eq keepsSelect(STR)
         = startsWith(STR, "select") or-else startsWith(STR, "show") or-else startsWith(STR, "help") or-else
-          STR == "h." or-else startsWith(STR, "h ") or-else startsWith(STR, "draw") .
+          STR == "h." or-else startsWith(STR, "h ") .
 
     --- load FILE
     eq hasScript((script: SC, ATS)) = true .
@@ -6486,7 +6241,7 @@ mod DM-CHECK-UI is
     eq isRecordable(STR)
         = not (STR == "" or-else STR == "q" or-else STR == "h." or-else startsWith(STR, "h ") or-else
                startsWith(STR, "show") or-else startsWith(STR, "help") or-else startsWith(STR, "quit") or-else
-               startsWith(STR, "load") or-else startsWith(STR, "save") or-else startsWith(STR, "draw")) .
+               startsWith(STR, "load") or-else startsWith(STR, "save")) .
     eq histCmd(STR)
         = if isRecordable(trim(STR))
           then prettyCmd(flatCmd(trim(STR)))
@@ -6553,22 +6308,11 @@ mod DM-CHECK-UI is
     eq histUpd'(true, VAPEND, ATS, HIST, PEND, STR)
         = (ATS, history: HIST, histPending: "", vaPend: (if isWarning(STR) then "" else PEND fi)) .
     eq histUpd'(false, VAPEND, ATS, HIST, PEND, STR)
-        = snapIf(not isWarning(STR),
-                 (if VAPEND =/= "" and-then startsWith(trim(PEND), "select") then VAPEND + "\n" else "" fi) + PEND,
-                 (ATS, histPending: "",
-                  history: (if isWarning(STR) then HIST else HIST +
-                            (if VAPEND =/= "" and-then startsWith(trim(PEND), "select") then VAPEND + "\n\n" else
-                             "" fi) + PEND + "\n\n" fi)), STR) .
+        = (ATS, histPending: "",
+           history: (if isWarning(STR) then HIST else HIST +
+                     (if VAPEND =/= "" and-then startsWith(trim(PEND), "select") then VAPEND + "\n\n" else "" fi) +
+                     PEND + "\n\n" fi)) .
 
-    --- Add a snapshot of the state after an accepted command
-    op snapIf : Bool String AttributeSet String -> AttributeSet .
-    eq snapIf(false, CMD, ATS, STR) = ATS .
-    eq snapIf(true, CMD, (session: SNAPS, module: M, lastCmd: (CMD' | TYPE), lastRes: OUTPUT,
-                                lemmasui: LEMMAS, userlem: ULEMMAS, pos: POS, ATS), STR)
-        = (session: (SNAPS ;;; snap(CMD, TYPE, M, OUTPUT, LEMMAS, ULEMMAS, POS, STR)),
-           module: M, lastCmd: (CMD' | TYPE), lastRes: OUTPUT,
-           lemmasui: LEMMAS, userlem: ULEMMAS, pos: POS, ATS) .
-    eq snapIf(true, CMD, ATS, STR) = ATS [ owise ] .
     --- Pending variable abstraction selection (for save proof)
     op hasVaSel : AttributeSet -> Bool .
     eq hasVaSel((vaSelect: true, ATS)) = true .
@@ -6604,28 +6348,6 @@ mod DM-CHECK-UI is
         => < OID : CID | ATS, saving: saveClosing(errorMsg(61, NAME, STR)) > closeFile(FH, OID) .
     rl [io-save-closed] : < OID : CID | ATS, saving: saveClosing(MSG) > closedFile(OID, FH)
         => < OID : CID | ATS > write(stdout, OID, MSG) .
-
-    --- draw graph [FILE] .
-    op drawOpening : String String -> SaveMode [ ctor ] .
-    op drawWriting : String Oid -> SaveMode [ ctor ] .
-    eq < OID : CID | ATS > parse('draw`graph`..Command)
-        = < OID : CID | ATS > parse('draw`graph_.['token[upTerm('dm-check-session.html)]]) .
-    eq < OID : CID | ATS, session: noSnaps > parse('draw`graph_.['token[ARG]])
-        = < OID : CID | ATS, session: noSnaps > write(stdout, OID, errorMsg(64)) .
-    ceq < OID : CID | ATS, session: SNAPS, history: HIST > parse('draw`graph_.['token[ARG]])
-        = < OID : CID | saving: drawOpening(string(downTerm(ARG, 'noFile.Qid)), drawPage(SNAPS, proofScript(HIST))),
-                        ATS, session: SNAPS, history: HIST >
-          openFile(fileManager, OID, string(downTerm(ARG, 'noFile.Qid)), "w")
-        if SNAPS =/= noSnaps .
-    rl [io-draw-opened] : < OID : CID | ATS, saving: drawOpening(NAME, TEXT) > openedFile(OID, fileManager, FH)
-        => < OID : CID | ATS, saving: drawWriting(NAME, FH) > write(FH, OID, TEXT) .
-    rl [io-draw-open-error] : < OID : CID | ATS, saving: drawOpening(NAME, TEXT) > fileError(OID, fileManager, STR)
-        => < OID : CID | ATS > write(stdout, OID, errorMsg(63, NAME, STR)) .
-    rl [io-draw-wrote] : < OID : CID | ATS, saving: drawWriting(NAME, FH) > wrote(OID, FH)
-        => < OID : CID | ATS, saving: saveClosing("\n\033[1;32m  Session graph saved to " + NAME + ".\033[0m\n\n") >
-           closeFile(FH, OID) .
-    rl [io-draw-write-error] : < OID : CID | ATS, saving: drawWriting(NAME, FH) > fileError(OID, FH, STR)
-        => < OID : CID | ATS, saving: saveClosing(errorMsg(63, NAME, STR)) > closeFile(FH, OID) .
 endm
 
 --- smt.maude (loaded by NuITP) leaves set include BOOLEAN on
