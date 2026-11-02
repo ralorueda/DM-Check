@@ -1,0 +1,52 @@
+***(
+Copyright 2023-2026 Universitat Politècnica de València, Spain
+
+This program is free software: you can redistribute it and/or modify it under the terms 
+of the GNU General Public License as published by the Free Software Foundation, either 
+version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+)***
+
+fmod NAT-LIST is
+    protecting NAT .
+    sort List .
+    subsorts Nat < List .
+
+    op nil : -> List .
+    op _;_ : List List -> List [assoc id: nil] .
+    op |_| : List -> Nat .                         
+
+    var N : Nat .  var L : List .
+    eq | nil | = 0 .
+    eq | N ; L | = s(| L |) .
+endfm
+
+omod COMM is protecting NAT-LIST .
+    protecting  QID .
+    subsort Qid < Oid .
+
+    class Sender |  buff : List, rec : Oid, cnt : Nat, ack-w : Bool .
+    class Receiver |  buff : List, snd : Oid, cnt : Nat .
+    msg to_from_val_cnt_ : Oid Oid Nat Nat -> Msg .
+    msg to_from_ack_ : Oid Oid Nat -> Msg .
+
+    op init : Oid Oid List -> Configuration .
+
+    vars N M : Nat . vars L Q : List .  vars A B : Oid .  var TV : Bool .
+
+    eq init(A,B,L) =  < A : Sender | buff : L, rec : B, cnt : 0, ack-w : false >
+                < B : Receiver | buff : nil, snd : A, cnt : 0 > .
+    
+    rl [snd] : < A : Sender | buff : (N ; L), rec : B, cnt : M, ack-w : false > =>
+    (to B from A val N cnt M) < A : Sender | buff : L, cnt : M, ack-w : true  > [narrowing] .
+    
+    rl [rec] : < B : Receiver | buff : L, snd : A, cnt : M >
+    (to B from A val N cnt M) => (to A from B ack M)
+    < B : Receiver | buff : (L ; N),  snd : A, cnt : s(M) > [narrowing] .
+
+    rl [ack-rec] : (to A from B ack M)
+        < A : Sender | buff : L, rec : B, cnt : M, ack-w : true >
+            => < A : Sender | buff : L, rec : B, cnt : s(M), ack-w : false > [narrowing] .
+endom
